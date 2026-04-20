@@ -106,7 +106,7 @@ async function listBucketKeys(bucket: R2BucketLike, prefix: string): Promise<str
   return (response.objects ?? []).map((item) => item.key);
 }
 
-export class InMemorySqliteTraceStore implements TraceStoreLike {
+export class MemoryTraceStore implements TraceStoreLike {
   readonly namespace: string;
   private readonly store: TraceNamespace;
 
@@ -163,7 +163,7 @@ export class R2BackedTraceStore implements TraceStoreLike {
     this.namespace = options?.namespace ?? "default";
     this.binding = options?.binding ?? "SO_ARTIFACTS";
     this.env = options?.env;
-    this.fallbackStore = options?.fallbackStore ?? new InMemorySqliteTraceStore(this.namespace);
+    this.fallbackStore = options?.fallbackStore ?? new MemoryTraceStore(this.namespace);
   }
 
   withEnv(env: CloudflareEnvLike): R2BackedTraceStore {
@@ -245,7 +245,7 @@ export class R2BackedTraceStore implements TraceStoreLike {
   }
 }
 
-export class InMemorySqliteArtifactStore implements ArtifactStoreLike {
+export class MemoryArtifactStore implements ArtifactStoreLike {
   readonly namespace: string;
   private readonly store: ArtifactNamespace;
 
@@ -322,7 +322,7 @@ export class R2BackedArtifactStore implements ArtifactStoreLike {
     this.namespace = options?.namespace ?? "default";
     this.binding = options?.binding ?? "SO_ARTIFACTS";
     this.env = options?.env;
-    this.fallbackStore = options?.fallbackStore ?? new InMemorySqliteArtifactStore(this.namespace);
+    this.fallbackStore = options?.fallbackStore ?? new MemoryArtifactStore(this.namespace);
   }
 
   withEnv(env: CloudflareEnvLike): R2BackedArtifactStore {
@@ -484,7 +484,11 @@ export class InMemoryR2BlobStore implements BlobStoreLike {
   }
 }
 
-export function createSqliteTraceStore(namespace?: string): TraceStoreLike {
+export function createMemoryTraceStore(namespace?: string): TraceStoreLike {
+  return new MemoryTraceStore(namespace);
+}
+
+export function createR2TraceStore(namespace?: string): TraceStoreLike {
   return new R2BackedTraceStore(
     namespace == null
       ? undefined
@@ -494,7 +498,11 @@ export function createSqliteTraceStore(namespace?: string): TraceStoreLike {
   );
 }
 
-export function createSqliteArtifactStore(namespace?: string): ArtifactStoreLike {
+export function createMemoryArtifactStore(namespace?: string): ArtifactStoreLike {
+  return new MemoryArtifactStore(namespace);
+}
+
+export function createR2ArtifactStore(namespace?: string): ArtifactStoreLike {
   return new R2BackedArtifactStore(
     namespace == null
       ? undefined
@@ -503,6 +511,30 @@ export function createSqliteArtifactStore(namespace?: string): ArtifactStoreLike
         },
   );
 }
+
+export function createPrototypeTraceStore(namespace?: string): TraceStoreLike {
+  return createR2TraceStore(namespace);
+}
+
+export function createPrototypeArtifactStore(namespace?: string): ArtifactStoreLike {
+  return createR2ArtifactStore(namespace);
+}
+
+/** @deprecated This helper currently returns a prototype R2-backed store, not SQLite-backed storage. */
+export function createSqliteTraceStore(namespace?: string): TraceStoreLike {
+  return createPrototypeTraceStore(namespace);
+}
+
+/** @deprecated This helper currently returns a prototype R2-backed store, not SQLite-backed storage. */
+export function createSqliteArtifactStore(namespace?: string): ArtifactStoreLike {
+  return createPrototypeArtifactStore(namespace);
+}
+
+/** @deprecated Prefer MemoryTraceStore. */
+export class InMemorySqliteTraceStore extends MemoryTraceStore {}
+
+/** @deprecated Prefer MemoryArtifactStore. */
+export class InMemorySqliteArtifactStore extends MemoryArtifactStore {}
 
 export function createR2BlobStore(namespace?: string): BlobStoreLike {
   return new InMemoryR2BlobStore(namespace);

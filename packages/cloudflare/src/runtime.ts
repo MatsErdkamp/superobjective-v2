@@ -4,7 +4,13 @@ import { z } from "zod";
 import {
   R2BackedArtifactStore,
   R2BackedTraceStore,
+  createMemoryArtifactStore,
+  createMemoryTraceStore,
+  createPrototypeArtifactStore,
+  createPrototypeTraceStore,
   createR2BlobStore,
+  createR2ArtifactStore,
+  createR2TraceStore,
   createSqliteArtifactStore,
   createSqliteTraceStore,
 } from "./stores";
@@ -564,6 +570,12 @@ export const cloudflare = Object.assign(
   {
     workersAI,
     aiSdkBridge: createAiSdkBridge,
+    memoryTraceStore: createMemoryTraceStore,
+    memoryArtifactStore: createMemoryArtifactStore,
+    r2TraceStore: createR2TraceStore,
+    r2ArtifactStore: createR2ArtifactStore,
+    prototypeTraceStore: createPrototypeTraceStore,
+    prototypeArtifactStore: createPrototypeArtifactStore,
     sqliteTraceStore: createSqliteTraceStore,
     sqliteArtifactStore: createSqliteArtifactStore,
     r2BlobStore(options?: {

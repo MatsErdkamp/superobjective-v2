@@ -1,5 +1,13 @@
 export { cloudflare } from "./runtime";
-export { AgentHost, McpHost, ThinkHost, createCloudflareWorker } from "./worker";
+export {
+  AgentHost,
+  HostedAgentRouteHost,
+  HostedMcpRouteHost,
+  McpHost,
+  RpcHost,
+  ThinkHost,
+  createCloudflareWorker,
+} from "./worker";
 
 export type {
   AgentLike,

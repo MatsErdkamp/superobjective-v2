@@ -2120,19 +2120,23 @@ Instead:
 ```ts
 // src/worker.ts
 import { createCloudflareWorker, cloudflare } from "@superobjective/cloudflare";
-import { AgentHost, ThinkHost, McpHost } from "@superobjective/cloudflare/hosts";
+import {
+  HostedAgentRouteHost,
+  HostedMcpRouteHost,
+  RpcHost,
+} from "@superobjective/cloudflare/hosts";
 
 import { project } from "./project";
 
-export { AgentHost, ThinkHost, McpHost };
+export { HostedAgentRouteHost, HostedMcpRouteHost, RpcHost };
 
 export default createCloudflareWorker({
   project,
 
   runtime: {
     model: cloudflare.workersAI("@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
-    traceStore: cloudflare.sqliteTraceStore(),
-    artifactStore: cloudflare.sqliteArtifactStore(),
+    traceStore: cloudflare.prototypeTraceStore(),
+    artifactStore: cloudflare.prototypeArtifactStore(),
   },
 });
 ```
@@ -2150,15 +2154,15 @@ export default createCloudflareWorker({
     "bindings": [
       {
         "name": "SO_AGENT",
-        "class_name": "AgentHost",
+        "class_name": "RpcHost",
       },
       {
         "name": "SO_THINK",
-        "class_name": "ThinkHost",
+        "class_name": "HostedAgentRouteHost",
       },
       {
         "name": "SO_MCP",
-        "class_name": "McpHost",
+        "class_name": "HostedMcpRouteHost",
       },
     ],
   },
@@ -2166,7 +2170,7 @@ export default createCloudflareWorker({
   "migrations": [
     {
       "tag": "superobjective-hosts-v1",
-      "new_sqlite_classes": ["AgentHost", "ThinkHost", "McpHost"],
+      "new_sqlite_classes": ["RpcHost", "HostedAgentRouteHost", "HostedMcpRouteHost"],
     },
   ],
 
@@ -2191,17 +2195,17 @@ Adding a new logical Superobjective program should not require a new Durable Obj
 
 ```txt
 /agents/:agentName/:sessionId
-  → ThinkHost
+  → HostedAgentRouteHost
   → project.agents[agentName]
   → chat program + tools
 
 /rpc/:rpcName/:handlerName
-  → AgentHost
+  → RpcHost
   → project.rpc[rpcName].handlers[handlerName]
   → PredictModule or Program
 
 /mcp/:mcpName
-  → McpHost
+  → HostedMcpRouteHost
   → project.mcp[mcpName].tools
 ```
 
@@ -2209,7 +2213,7 @@ Adding a new logical Superobjective program should not require a new Durable Obj
 
 Cloudflare Think supports several tool sources, including custom server-side tools via `getTools()`, MCP tools, client tools, and built-in workspace tools backed by Durable Object SQLite. ([Cloudflare Docs][9])
 
-`ThinkHost` should:
+`HostedAgentRouteHost` should:
 
 ```txt
 map so.agent({ chat, tools }) to Think lifecycle
@@ -2464,8 +2468,12 @@ createCloudflareWorker
 cloudflare
 
 cloudflare.workersAI
-cloudflare.sqliteTraceStore
-cloudflare.sqliteArtifactStore
+cloudflare.prototypeTraceStore
+cloudflare.prototypeArtifactStore
+cloudflare.r2TraceStore
+cloudflare.r2ArtifactStore
+cloudflare.memoryTraceStore
+cloudflare.memoryArtifactStore
 cloudflare.r2BlobStore
 cloudflare.aiSdkBridge
 ```
@@ -2474,9 +2482,12 @@ Hosts:
 
 ```txt
 @superobjective/cloudflare/hosts
-  AgentHost
-  ThinkHost
-  McpHost
+  RpcHost
+  HostedAgentRouteHost
+  HostedMcpRouteHost
+  AgentHost (deprecated alias)
+  ThinkHost (deprecated alias)
+  McpHost (deprecated alias)
 ```
 
 ---
@@ -2687,11 +2698,15 @@ export const project = so.project({
 ```ts
 // src/worker.ts
 import { createCloudflareWorker, cloudflare } from "@superobjective/cloudflare";
-import { AgentHost, ThinkHost, McpHost } from "@superobjective/cloudflare/hosts";
+import {
+  HostedAgentRouteHost,
+  HostedMcpRouteHost,
+  RpcHost,
+} from "@superobjective/cloudflare/hosts";
 
 import { project } from "./project";
 
-export { AgentHost, ThinkHost, McpHost };
+export { HostedAgentRouteHost, HostedMcpRouteHost, RpcHost };
 
 export default createCloudflareWorker({
   project,
@@ -2699,8 +2714,8 @@ export default createCloudflareWorker({
   runtime: {
     model: cloudflare.workersAI("@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
     structuredGeneration: cloudflare.aiSdkBridge(),
-    traceStore: cloudflare.sqliteTraceStore(),
-    artifactStore: cloudflare.sqliteArtifactStore(),
+    traceStore: cloudflare.prototypeTraceStore(),
+    artifactStore: cloudflare.prototypeArtifactStore(),
   },
 
   cloudflare: {
@@ -2871,12 +2886,12 @@ Implement:
 
 ```txt
 createCloudflareWorker
-AgentHost
-ThinkHost
-McpHost
+RpcHost
+HostedAgentRouteHost
+HostedMcpRouteHost
 Workers AI model adapter
 AI SDK structured bridge
-SQLite trace/artifact stores
+prototype trace/artifact stores
 R2 blob store optional
 RPC route dispatch
 Think tool conversion
@@ -2892,7 +2907,7 @@ wrangler deploy works
 stable host classes are exported
 new predict module does not require new host class
 Think tools can call PredictModule
-traces/artifacts persist in SQLite
+traces/artifacts persist in the current prototype store
 ```
 
 ---
@@ -2924,7 +2939,7 @@ A v0.1 prototype is acceptable only if:
 [ ] CompiledArtifact stores a TextCandidate dictionary.
 [ ] `.withArtifact()` changes rendered prompt/schema descriptions without changing code.
 [ ] Cloudflare placement is defined only in `project`.
-[ ] `@superobjective/cloudflare/hosts` exports `AgentHost`, `ThinkHost`, `McpHost`.
+[ ] `@superobjective/cloudflare/hosts` exports `RpcHost`, `HostedAgentRouteHost`, `HostedMcpRouteHost`.
 [ ] Cloudflare Worker uses normal `wrangler dev` and `wrangler deploy`.
 [ ] Cloudflare local/remote binding hints emit warnings but do not replace Wrangler.
 ```

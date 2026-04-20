@@ -4,14 +4,14 @@
 declare namespace Cloudflare {
   interface GlobalProps {
     mainModule: typeof import("./worker");
-    durableNamespaces: "AgentHost" | "ThinkHost" | "McpHost";
+    durableNamespaces: "RpcHost" | "HostedAgentRouteHost" | "HostedMcpRouteHost";
   }
   interface Env {
     SO_ARTIFACTS: R2Bucket;
     AI: Ai;
-    SO_AGENT: DurableObjectNamespace<import("./worker").AgentHost>;
-    SO_THINK: DurableObjectNamespace<import("./worker").ThinkHost>;
-    SO_MCP: DurableObjectNamespace<import("./worker").McpHost>;
+    SO_AGENT: DurableObjectNamespace<import("./worker").RpcHost>;
+    SO_THINK: DurableObjectNamespace<import("./worker").HostedAgentRouteHost>;
+    SO_MCP: DurableObjectNamespace<import("./worker").HostedMcpRouteHost>;
   }
 }
 interface Env extends Cloudflare.Env {}

@@ -30,22 +30,22 @@
       },
       {
         "name": "SO_AGENT",
-        "class_name": "AgentHost",
+        "class_name": "RpcHost",
       },
       {
         "name": "SO_THINK",
-        "class_name": "ThinkHost",
+        "class_name": "HostedAgentRouteHost",
       },
       {
         "name": "SO_MCP",
-        "class_name": "McpHost",
+        "class_name": "HostedMcpRouteHost",
       },
     ],
   },
   "migrations": [
     {
       "tag": "superobjective-hosts-v1",
-      "new_sqlite_classes": ["AgentHost", "ThinkHost", "McpHost"],
+      "new_sqlite_classes": ["RpcHost", "HostedAgentRouteHost", "HostedMcpRouteHost"],
     },
     {
       "tag": "superobjective-hosts-v2",

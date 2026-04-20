@@ -1,7 +1,7 @@
 import {
-  AgentHost,
-  McpHost,
-  ThinkHost,
+  HostedAgentRouteHost,
+  HostedMcpRouteHost,
+  RpcHost,
   cloudflare,
   createCloudflareWorker,
   type CloudflareEnvLike,
@@ -17,8 +17,8 @@ import { project } from "./project";
 export const SUPEROBJECTIVE_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 export const SUPEROBJECTIVE_NAMESPACE = "superobjective-cloudflare";
 
-const traceStore = cloudflare.sqliteTraceStore(SUPEROBJECTIVE_NAMESPACE);
-const artifactStore = cloudflare.sqliteArtifactStore(SUPEROBJECTIVE_NAMESPACE);
+const traceStore = cloudflare.prototypeTraceStore(SUPEROBJECTIVE_NAMESPACE);
+const artifactStore = cloudflare.prototypeArtifactStore(SUPEROBJECTIVE_NAMESPACE);
 const blobStore = cloudflare.r2BlobStore({
   binding: "SO_ARTIFACTS",
 });
@@ -41,7 +41,7 @@ function resolveBlobStore(env?: CloudflareEnvLike) {
     : blobStore;
 }
 
-export { AgentHost, ThinkHost, McpHost, AppStateAgent };
+export { AppStateAgent, HostedAgentRouteHost, HostedMcpRouteHost, RpcHost };
 
 const runtimeWorker = createCloudflareWorker({
   project: project as ProjectLike,

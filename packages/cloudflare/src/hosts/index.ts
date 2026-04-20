@@ -1,1 +1,8 @@
-export { AgentHost, McpHost, ThinkHost } from "../worker";
+export {
+  AgentHost,
+  HostedAgentRouteHost,
+  HostedMcpRouteHost,
+  McpHost,
+  RpcHost,
+  ThinkHost,
+} from "../worker";

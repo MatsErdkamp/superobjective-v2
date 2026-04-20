@@ -152,8 +152,8 @@ describe("superobjective prototype", () => {
 
   it("serves RPC handlers through the Cloudflare worker surface", async () => {
     const triage = createTriageModule();
-    const traceStore = cloudflare.sqliteTraceStore();
-    const artifactStore = cloudflare.sqliteArtifactStore();
+    const traceStore = cloudflare.prototypeTraceStore();
+    const artifactStore = cloudflare.prototypeArtifactStore();
     const model = mockModel([
       {
         category: "billing",
