@@ -125,109 +125,117 @@ function createSignatureBuilder<
   TName extends string,
   TInput extends FieldRecord,
   TOutput extends FieldRecord,
->(
-  state: SignatureBuilderState<TName, TInput, TOutput>,
-): SignatureBuilder<TName, TInput, TOutput> {
-  const builder: SignatureBuilder<TName, TInput, TOutput> = {
-    withInstructions(value: string | TextParam, options?: { optimize?: boolean }) {
-      return createSignatureBuilder({
-        ...state,
-        instructions: normalizeBuilderTextParam(value, options?.optimize),
-      });
-    },
-    withInstruction(value: string | TextParam, options?: { optimize?: boolean }) {
-      return builder.withInstructions(value as any, options as any);
-    },
-    withInput<
-      TKey extends string,
-      T,
-      TSchema extends z.ZodType<T>,
-      TOptional extends boolean | undefined = undefined,
-    >(
-      name: TKey,
-      schema: TSchema,
-      options: {
-        description: string | TextParam;
-        optimize?: boolean;
-        optional?: TOptional;
-        default?: TOptional extends true ? T | undefined : T;
-        examples?: Array<TOptional extends true ? T | undefined : T>;
-        metadata?: Record<string, unknown>;
-      },
-    ) {
-      const field = input<T, TSchema, TOptional>(schema, {
-        description: normalizeBuilderTextParam(options.description, options.optimize),
-        ...(options.optional !== undefined ? { optional: options.optional } : {}),
-        ...(options.default !== undefined ? { default: options.default } : {}),
-        ...(options.examples ? { examples: options.examples } : {}),
-        ...(options.metadata ? { metadata: options.metadata } : {}),
-      });
+>(state: SignatureBuilderState<TName, TInput, TOutput>): SignatureBuilder<TName, TInput, TOutput> {
+  function withInstructions(value: string | TextParam, options?: { optimize?: boolean }) {
+    return createSignatureBuilder({
+      ...state,
+      instructions: normalizeBuilderTextParam(value, options?.optimize),
+    });
+  }
 
-      return createSignatureBuilder({
-        ...state,
-        input: {
-          ...state.input,
-          [name]: field,
-        } as Omit<TInput, TKey> &
-          Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>,
-      });
-    },
-    withOutput<
-      TKey extends string,
-      T,
-      TSchema extends z.ZodType<T>,
-      TOptional extends boolean | undefined = undefined,
-    >(
-      name: TKey,
-      schema: TSchema,
-      options: {
-        description: string | TextParam;
-        optimize?: boolean;
-        optional?: TOptional;
-        default?: TOptional extends true ? T | undefined : T;
-        examples?: Array<TOptional extends true ? T | undefined : T>;
-        metadata?: Record<string, unknown>;
-      },
-    ) {
-      const field = output<T, TSchema, TOptional>(schema, {
-        description: normalizeBuilderTextParam(options.description, options.optimize),
-        ...(options.optional !== undefined ? { optional: options.optional } : {}),
-        ...(options.default !== undefined ? { default: options.default } : {}),
-        ...(options.examples ? { examples: options.examples } : {}),
-        ...(options.metadata ? { metadata: options.metadata } : {}),
-      });
+  function withInstruction(value: string | TextParam, options?: { optimize?: boolean }) {
+    return withInstructions(value, options);
+  }
 
-      return createSignatureBuilder({
-        ...state,
-        output: {
-          ...state.output,
-          [name]: field,
-        } as Omit<TOutput, TKey> &
-          Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>,
-      });
+  function withInput<
+    TKey extends string,
+    T,
+    TSchema extends z.ZodType<T>,
+    TOptional extends boolean | undefined = undefined,
+  >(
+    name: TKey,
+    schema: TSchema,
+    options: {
+      description: string | TextParam;
+      optimize?: boolean;
+      optional?: TOptional;
+      default?: TOptional extends true ? T | undefined : T;
+      examples?: Array<TOptional extends true ? T | undefined : T>;
+      metadata?: Record<string, unknown>;
     },
-    withMetadata(metadata: Record<string, unknown>) {
-      return createSignatureBuilder({
-        ...state,
-        metadata,
-      });
-    },
-    build() {
-      if (!state.instructions?.value?.trim()) {
-        throw new Error(`Signature "${state.name}" requires instructions.`);
-      }
+  ) {
+    const field = input<T, TSchema, TOptional>(schema, {
+      description: normalizeBuilderTextParam(options.description, options.optimize),
+      ...(options.optional !== undefined ? { optional: options.optional } : {}),
+      ...(options.default !== undefined ? { default: options.default } : {}),
+      ...(options.examples ? { examples: options.examples } : {}),
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+    });
 
-      return createSignatureObject({
-        name: state.name,
-        instructions: state.instructions,
-        input: state.input,
-        output: state.output,
-        ...(state.metadata ? { metadata: state.metadata } : {}),
-      });
-    },
-  };
+    return createSignatureBuilder({
+      ...state,
+      input: {
+        ...state.input,
+        [name]: field,
+      } as Omit<TInput, TKey> &
+        Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>,
+    });
+  }
 
-  return builder;
+  function withOutput<
+    TKey extends string,
+    T,
+    TSchema extends z.ZodType<T>,
+    TOptional extends boolean | undefined = undefined,
+  >(
+    name: TKey,
+    schema: TSchema,
+    options: {
+      description: string | TextParam;
+      optimize?: boolean;
+      optional?: TOptional;
+      default?: TOptional extends true ? T | undefined : T;
+      examples?: Array<TOptional extends true ? T | undefined : T>;
+      metadata?: Record<string, unknown>;
+    },
+  ) {
+    const field = output<T, TSchema, TOptional>(schema, {
+      description: normalizeBuilderTextParam(options.description, options.optimize),
+      ...(options.optional !== undefined ? { optional: options.optional } : {}),
+      ...(options.default !== undefined ? { default: options.default } : {}),
+      ...(options.examples ? { examples: options.examples } : {}),
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+    });
+
+    return createSignatureBuilder({
+      ...state,
+      output: {
+        ...state.output,
+        [name]: field,
+      } as Omit<TOutput, TKey> &
+        Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>,
+    });
+  }
+
+  function withMetadata(metadata: Record<string, unknown>) {
+    return createSignatureBuilder({
+      ...state,
+      metadata,
+    });
+  }
+
+  function build() {
+    if (!state.instructions?.value?.trim()) {
+      throw new Error(`Signature "${state.name}" requires instructions.`);
+    }
+
+    return createSignatureObject({
+      name: state.name,
+      instructions: state.instructions,
+      input: state.input,
+      output: state.output,
+      ...(state.metadata ? { metadata: state.metadata } : {}),
+    });
+  }
+
+  return {
+    withInstructions,
+    withInstruction,
+    withInput,
+    withOutput,
+    withMetadata,
+    build,
+  } as SignatureBuilder<TName, TInput, TOutput>;
 }
 
 export function signature<TName extends string>(

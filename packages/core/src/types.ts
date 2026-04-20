@@ -80,17 +80,15 @@ export interface SignatureBuilder<
   TInput extends FieldRecord,
   TOutput extends FieldRecord,
 > {
-  withInstructions(value: string, options?: { optimize?: boolean }): SignatureBuilder<
-    TName,
-    TInput,
-    TOutput
-  >;
+  withInstructions(
+    value: string,
+    options?: { optimize?: boolean },
+  ): SignatureBuilder<TName, TInput, TOutput>;
   withInstructions(value: TextParam): SignatureBuilder<TName, TInput, TOutput>;
-  withInstruction(value: string, options?: { optimize?: boolean }): SignatureBuilder<
-    TName,
-    TInput,
-    TOutput
-  >;
+  withInstruction(
+    value: string,
+    options?: { optimize?: boolean },
+  ): SignatureBuilder<TName, TInput, TOutput>;
   withInstruction(value: TextParam): SignatureBuilder<TName, TInput, TOutput>;
   withInput<
     TKey extends string,
@@ -132,8 +130,7 @@ export interface SignatureBuilder<
   ): SignatureBuilder<
     TName,
     TInput,
-    Omit<TOutput, TKey> &
-      Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>
+    Omit<TOutput, TKey> & Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>
   >;
   withMetadata(metadata: Record<string, unknown>): SignatureBuilder<TName, TInput, TOutput>;
   build(): Signature<TInput, TOutput>;

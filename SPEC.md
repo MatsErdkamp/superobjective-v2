@@ -568,54 +568,33 @@ Example:
 import { z } from "zod";
 import { so } from "superobjective";
 
-export const TriageTicket = so.signature({
-  name: "triage_ticket",
-
-  instructions: so.text({
-    value: "Classify a support ticket for human routing.",
+export const TriageTicket = so
+  .signature("triage_ticket")
+  .withInstructions("Classify a support ticket for human routing.", {
     optimize: true,
-  }),
-
-  input: {
-    subject: so.input(z.string(), {
-      description: so.text({
-        value: "The ticket subject line, usually a terse user-written summary.",
-        optimize: true,
-      }),
-    }),
-
-    body: so.input(z.string(), {
-      description: so.text({
-        value:
-          "The full user-written ticket body, including symptoms, account context, and desired resolution.",
-        optimize: true,
-      }),
-    }),
-  },
-
-  output: {
-    category: so.output(z.enum(["billing", "technical", "account", "other"]), {
-      description: so.text({
-        value: "The primary support queue that should handle the request.",
-        optimize: true,
-      }),
-    }),
-
-    priority: so.output(z.enum(["low", "medium", "high"]), {
-      description: so.text({
-        value: "Urgency based on user impact, business risk, and time sensitivity.",
-        optimize: true,
-      }),
-    }),
-
-    needsHuman: so.output(z.boolean(), {
-      description: so.text({
-        value: "Whether the issue should be escalated to a human support agent.",
-        optimize: true,
-      }),
-    }),
-  },
-});
+  })
+  .withInput("subject", z.string(), {
+    description: "The ticket subject line, usually a terse user-written summary.",
+    optimize: true,
+  })
+  .withInput("body", z.string(), {
+    description:
+      "The full user-written ticket body, including symptoms, account context, and desired resolution.",
+    optimize: true,
+  })
+  .withOutput("category", z.enum(["billing", "technical", "account", "other"]), {
+    description: "The primary support queue that should handle the request.",
+    optimize: true,
+  })
+  .withOutput("priority", z.enum(["low", "medium", "high"]), {
+    description: "Urgency based on user impact, business risk, and time sensitivity.",
+    optimize: true,
+  })
+  .withOutput("needsHuman", z.boolean(), {
+    description: "Whether the issue should be escalated to a human support agent.",
+    optimize: true,
+  })
+  .build();
 ```
 
 Type inference goals:
@@ -2511,54 +2490,33 @@ Hosts:
 import { z } from "zod";
 import { so } from "superobjective";
 
-export const TriageTicket = so.signature({
-  name: "triage_ticket",
-
-  instructions: so.text({
-    value: "Classify a support ticket for human routing.",
+export const TriageTicket = so
+  .signature("triage_ticket")
+  .withInstructions("Classify a support ticket for human routing.", {
     optimize: true,
-  }),
-
-  input: {
-    subject: so.input(z.string(), {
-      description: so.text({
-        value: "The ticket subject line, usually a terse user-written summary.",
-        optimize: true,
-      }),
-    }),
-
-    body: so.input(z.string(), {
-      description: so.text({
-        value:
-          "The full user-written ticket body, including symptoms, account context, and desired resolution.",
-        optimize: true,
-      }),
-    }),
-  },
-
-  output: {
-    category: so.output(z.enum(["billing", "technical", "account", "other"]), {
-      description: so.text({
-        value: "The primary support queue that should handle the request.",
-        optimize: true,
-      }),
-    }),
-
-    priority: so.output(z.enum(["low", "medium", "high"]), {
-      description: so.text({
-        value: "Urgency based on user impact, business risk, and time sensitivity.",
-        optimize: true,
-      }),
-    }),
-
-    needsHuman: so.output(z.boolean(), {
-      description: so.text({
-        value: "Whether the issue should be escalated to a human support agent.",
-        optimize: true,
-      }),
-    }),
-  },
-});
+  })
+  .withInput("subject", z.string(), {
+    description: "The ticket subject line, usually a terse user-written summary.",
+    optimize: true,
+  })
+  .withInput("body", z.string(), {
+    description:
+      "The full user-written ticket body, including symptoms, account context, and desired resolution.",
+    optimize: true,
+  })
+  .withOutput("category", z.enum(["billing", "technical", "account", "other"]), {
+    description: "The primary support queue that should handle the request.",
+    optimize: true,
+  })
+  .withOutput("priority", z.enum(["low", "medium", "high"]), {
+    description: "Urgency based on user impact, business risk, and time sensitivity.",
+    optimize: true,
+  })
+  .withOutput("needsHuman", z.boolean(), {
+    description: "Whether the issue should be escalated to a human support agent.",
+    optimize: true,
+  })
+  .build();
 
 export const triageTicket = so.predict(TriageTicket, {
   adapter: so.adapters.xml(),
