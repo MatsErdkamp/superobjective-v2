@@ -1,0 +1,26 @@
+packages:
+  - apps/*
+  - packages/*
+
+ignoredBuiltDependencies:
+  - msw
+
+onlyBuiltDependencies:
+  - nucleo-ui-fill-18
+  - nucleo-ui-fill-duo-18
+  - nucleo-ui-outline-18
+  - nucleo-ui-outline-duo-18
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vitest: npm:@voidzero-dev/vite-plus-test@latest
+  vite-plus: latest
+overrides:
+  vite: "catalog:"
+  vitest: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: "*"
+    vitest: "*"

@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/hosting"
+    },
+    {
+      "path": "./packages/optimizer-gepa"
+    },
+    {
+      "path": "./packages/cloudflare"
+    }
+  ]
+}

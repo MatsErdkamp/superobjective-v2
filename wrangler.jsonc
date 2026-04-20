@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "superobjective-v2-live",
+  "main": "apps/cloudflare-worker/src/worker.ts",
+  "compatibility_date": "2026-04-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+  },
+  "ai": {
+    "binding": "AI",
+  },
+  "r2_buckets": [
+    {
+      "binding": "SO_ARTIFACTS",
+      "bucket_name": "superobjective-v2-artifacts-20260419",
+    },
+  ],
+  "ai_search_namespaces": [
+    {
+      "binding": "AI_SEARCH",
+      "namespace": "default",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SO_APP_STATE",
+        "class_name": "AppStateAgent",
+      },
+      {
+        "name": "SO_AGENT",
+        "class_name": "AgentHost",
+      },
+      {
+        "name": "SO_THINK",
+        "class_name": "ThinkHost",
+      },
+      {
+        "name": "SO_MCP",
+        "class_name": "McpHost",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "superobjective-hosts-v1",
+      "new_sqlite_classes": ["AgentHost", "ThinkHost", "McpHost"],
+    },
+    {
+      "tag": "superobjective-hosts-v2",
+      "new_sqlite_classes": ["AppStateAgent"],
+    },
+  ],
+}

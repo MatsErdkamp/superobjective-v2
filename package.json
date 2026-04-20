@@ -1,0 +1,33 @@
+{
+  "name": "superobjective-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp run -r build",
+    "clean": "rm -rf .wrangler .vite coverage node_modules apps/*/.git apps/*/.tanstack apps/*/.vscode apps/*/.wrangler apps/*/dist apps/*/node_modules packages/*/dist packages/*/node_modules packages/*/tsconfig.tsbuildinfo tests/node_modules tests/.vite",
+    "dev:dashboard": "wrangler dev -c apps/dashboard/wrangler.jsonc",
+    "deploy:cloudflare": "wrangler deploy",
+    "dev:cloudflare": "wrangler dev",
+    "test": "vp test run",
+    "test:cloudflare-live": "vp test run tests/cloudflare.live.test.ts",
+    "test:watch": "vp test",
+    "typecheck": "tsc -b --pretty false",
+    "types:dashboard": "wrangler types -c apps/dashboard/wrangler.jsonc apps/dashboard/src/env.d.ts",
+    "types:cloudflare": "wrangler types apps/cloudflare-worker/src/env.d.ts"
+  },
+  "dependencies": {
+    "@superobjective/cloudflare": "workspace:*",
+    "@superobjective/optimizer-gepa": "workspace:*",
+    "superobjective": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "^4.83.0",
+    "zod": "^4.1.11"
+  },
+  "packageManager": "pnpm@10.28.2"
+}

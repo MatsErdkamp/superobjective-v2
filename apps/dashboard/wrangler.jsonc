@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dashboard",
+  "compatibility_date": "2026-04-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "observability": {
+    "enabled": true,
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true,
+  },
+  "r2_buckets": [
+    {
+      "binding": "SO_ARTIFACTS",
+      "bucket_name": "superobjective-v2-artifacts-20260419",
+      "remote": true,
+    },
+  ],
+  "services": [
+    {
+      "binding": "SUPEROBJECTIVE_RUNTIME",
+      "service": "superobjective-v2-live",
+      "remote": true,
+    },
+  ],
+}
