@@ -76,6 +76,7 @@ export type {
   Score,
   SerializedError,
   Signature,
+  SignatureBuilder,
   StructuredGenerationBridge,
   StructuredGenerationResult,
   TextCandidate,

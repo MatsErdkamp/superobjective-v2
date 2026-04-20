@@ -7,29 +7,20 @@ import { so } from "superobjective";
 import { mockModel } from "./support/mock-model";
 
 function createTriageModule() {
-  const signature = so.signature({
-    name: "triage_ticket",
-    instructions: so.text({
-      value: "Classify a support ticket.",
+  const signature = so
+    .signature("triage_ticket")
+    .withInstructions("Classify a support ticket.", {
       optimize: true,
-    }),
-    input: {
-      subject: so.input(z.string(), {
-        description: so.text({
-          value: "The support ticket subject line.",
-          optimize: true,
-        }),
-      }),
-    },
-    output: {
-      category: so.output(z.enum(["billing", "other"]), {
-        description: so.text({
-          value: "The destination support queue.",
-          optimize: true,
-        }),
-      }),
-    },
-  });
+    })
+    .withInput("subject", z.string(), {
+      description: "The support ticket subject line.",
+      optimize: true,
+    })
+    .withOutput("category", z.enum(["billing", "other"]), {
+      description: "The destination support queue.",
+      optimize: true,
+    })
+    .build();
 
   return so.predict<{ subject: string }, { category: "billing" | "other" }>(signature, {
     adapter: so.adapters.xml(),

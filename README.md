@@ -6,6 +6,7 @@ This repository is organized as a pnpm workspace and now uses Vite+ for the
 repo-level developer workflow:
 
 - `packages/core` -> `superobjective`
+- `packages/hosting` -> `@superobjective/hosting`
 - `packages/optimizer-gepa` -> `@superobjective/optimizer-gepa`
 - `packages/cloudflare` -> `@superobjective/cloudflare`
 
@@ -21,49 +22,70 @@ The implementation follows [`SPEC.md`](./SPEC.md), with these core ideas:
 
 ```bash
 vp install
-vp run build
+vp check
 vp test
+vp run build
 ```
 
-## Example shape
+Root scripts that still matter:
+
+```bash
+vp run dev:cloudflare
+vp run dev:dashboard
+vp run deploy:cloudflare
+vp run test:cloudflare-live
+vp run types:cloudflare
+vp run types:dashboard
+```
+
+## Core API shape
 
 ```ts
 import { z } from "zod";
 import { so } from "superobjective";
 
-const TriageTicket = so.signature({
-  name: "triage_ticket",
-  instructions: so.text({
-    value: "Classify a support ticket for human routing.",
+const TriageTicket = so
+  .signature("triage_ticket")
+  .withInstructions("Classify a support ticket for human routing.", {
     optimize: true,
-  }),
-  input: {
-    subject: so.input(z.string(), {
-      description: so.text({
-        value: "The ticket subject line.",
-        optimize: true,
-      }),
-    }),
-    body: so.input(z.string(), {
-      description: so.text({
-        value: "The user-written ticket body.",
-        optimize: true,
-      }),
-    }),
-  },
-  output: {
-    category: so.output(z.enum(["billing", "technical", "account", "other"]), {
-      description: so.text({
-        value: "The support queue that should handle the request.",
-        optimize: true,
-      }),
-    }),
-  },
-});
+  })
+  .withInput("subject", z.string(), {
+    description: "The ticket subject line.",
+    optimize: true,
+  })
+  .withInput("body", z.string(), {
+    description: "The user-written ticket body.",
+    optimize: true,
+  })
+  .withOutput("category", z.enum(["billing", "technical", "account", "other"]), {
+    description: "The support queue that should handle the request.",
+    optimize: true,
+  })
+  .build();
 
 const triageTicket = so.predict(TriageTicket, {
   adapter: so.adapters.xml(),
 });
+```
+
+## Cloudflare worker
+
+The live worker entrypoint is [`wrangler.jsonc`](./wrangler.jsonc), which serves
+[`apps/cloudflare-worker/src/worker.ts`](./apps/cloudflare-worker/src/worker.ts).
+
+That worker hosts the current Superobjective project graph on Cloudflare and
+backs the dashboard surfaces for:
+
+- agents
+- RPC routes
+- MCP surfaces
+- traces and compiled artifacts
+
+Run it locally with:
+
+```bash
+vp run types:cloudflare
+vp run dev:cloudflare
 ```
 
 ## Dashboard
@@ -83,6 +105,13 @@ Run it with:
 vp run types:dashboard
 vp run dev:dashboard
 ```
+
+## Optimization fixture
+
+There is no full CLI demo in the repo anymore. The remaining files under
+[`examples/superobjective-demo`](./examples/superobjective-demo) are a minimal
+triage fixture used by [`scripts/compile-triage.ts`](./scripts/compile-triage.ts)
+for manual GEPA artifact generation.
 
 ## Status
 

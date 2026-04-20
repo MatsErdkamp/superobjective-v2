@@ -31,6 +31,14 @@ function mergeJobState(current: JobState | null, patch: JobStatePatch): JobState
   };
 }
 
+function requiredSpace<T>(space: T | undefined, label: string): T {
+  if (space == null) {
+    throw new Error(`Missing storage space: ${label}`);
+  }
+
+  return space;
+}
+
 describe("superobjective app host", () => {
   it("creates, gets, and reuses shared storage spaces", async () => {
     const host = superobjective.init(cloudflare({}));
@@ -46,8 +54,9 @@ describe("superobjective app host", () => {
         },
       },
     });
+    const firstReceipts = requiredSpace(first.storage.receipts, "first.storage.receipts");
 
-    const created = await first.storage.receipts.put({
+    const created = await firstReceipts.put({
       id: "receipt_apr_2026",
       kind: "pdf",
       body: new Uint8Array([1, 2, 3]),
@@ -62,12 +71,13 @@ describe("superobjective app host", () => {
     const second = await host.get({
       id: "customer-support-shared",
     });
+    const secondReceipts = requiredSpace(second.storage.receipts, "second.storage.receipts");
 
-    const loaded = await second.storage.receipts.get(created.id);
+    const loaded = await secondReceipts.get(created.id);
     expect(loaded?.id).toBe(created.id);
     expect(loaded?.body).toBeInstanceOf(Uint8Array);
 
-    const results = await second.storage.receipts.search({
+    const results = await secondReceipts.search({
       query: "stripe april",
     });
     expect(results[0]?.id).toBe(created.id);
@@ -183,8 +193,9 @@ describe("superobjective app host", () => {
         },
       },
     });
+    const receipts = requiredSpace(so.storage.receipts, "so.storage.receipts");
 
-    await so.storage.receipts.put({
+    await receipts.put({
       id: "receipt_to_delete",
       kind: "pdf",
       body: "temporary",
@@ -237,41 +248,28 @@ describe("superobjective app host", () => {
         needsHuman: boolean;
       }
     >(
-      superobjective.signature({
-        name: "classify_email",
-        instructions: superobjective.text({
-          value: "Classify the incoming support email.",
+      superobjective
+        .signature("classify_email")
+        .withInstructions("Classify the incoming support email.", {
           optimize: true,
-        }),
-        input: {
-          subject: superobjective.input(z.string(), {
-            description: superobjective.text({
-              value: "The customer email subject.",
-              optimize: true,
-            }),
-          }),
-          body: superobjective.input(z.string(), {
-            description: superobjective.text({
-              value: "The customer email body.",
-              optimize: true,
-            }),
-          }),
-        },
-        output: {
-          category: superobjective.output(z.enum(["billing", "general"]), {
-            description: superobjective.text({
-              value: "The target support queue.",
-              optimize: true,
-            }),
-          }),
-          needsHuman: superobjective.output(z.boolean(), {
-            description: superobjective.text({
-              value: "Whether a human should review this case.",
-              optimize: true,
-            }),
-          }),
-        },
-      }),
+        })
+        .withInput("subject", z.string(), {
+          description: "The customer email subject.",
+          optimize: true,
+        })
+        .withInput("body", z.string(), {
+          description: "The customer email body.",
+          optimize: true,
+        })
+        .withOutput("category", z.enum(["billing", "general"]), {
+          description: "The target support queue.",
+          optimize: true,
+        })
+        .withOutput("needsHuman", z.boolean(), {
+          description: "Whether a human should review this case.",
+          optimize: true,
+        })
+        .build(),
       {
         adapter: superobjective.adapters.xml(),
         model: classifyModel,
@@ -289,47 +287,32 @@ describe("superobjective app host", () => {
         response: string;
       }
     >(
-      superobjective.signature({
-        name: "draft_reply",
-        instructions: superobjective.text({
-          value: "Draft a short customer reply and choose the queue.",
+      superobjective
+        .signature("draft_reply")
+        .withInstructions("Draft a short customer reply and choose the queue.", {
           optimize: true,
-        }),
-        input: {
-          category: superobjective.input(z.enum(["billing", "general"]), {
-            description: superobjective.text({
-              value: "The predicted case category.",
-              optimize: true,
-            }),
-          }),
-          vendor: superobjective.input(z.string(), {
-            description: superobjective.text({
-              value: "The payment vendor related to the request.",
-              optimize: true,
-            }),
-          }),
-          body: superobjective.input(z.string(), {
-            description: superobjective.text({
-              value: "The original customer email body.",
-              optimize: true,
-            }),
-          }),
-        },
-        output: {
-          queue: superobjective.output(z.enum(["billing", "general"]), {
-            description: superobjective.text({
-              value: "The queue that should handle the reply.",
-              optimize: true,
-            }),
-          }),
-          response: superobjective.output(z.string(), {
-            description: superobjective.text({
-              value: "The customer-facing reply.",
-              optimize: true,
-            }),
-          }),
-        },
-      }),
+        })
+        .withInput("category", z.enum(["billing", "general"]), {
+          description: "The predicted case category.",
+          optimize: true,
+        })
+        .withInput("vendor", z.string(), {
+          description: "The payment vendor related to the request.",
+          optimize: true,
+        })
+        .withInput("body", z.string(), {
+          description: "The original customer email body.",
+          optimize: true,
+        })
+        .withOutput("queue", z.enum(["billing", "general"]), {
+          description: "The queue that should handle the reply.",
+          optimize: true,
+        })
+        .withOutput("response", z.string(), {
+          description: "The customer-facing reply.",
+          optimize: true,
+        })
+        .build(),
       {
         adapter: superobjective.adapters.xml(),
         model: replyModel,
@@ -347,6 +330,8 @@ describe("superobjective app host", () => {
         },
       },
     });
+    const receiptSpace = requiredSpace(so.storage.receipts, "so.storage.receipts");
+    const emailSpace = requiredSpace(so.storage.emails, "so.storage.emails");
 
     const jobs = [
       {
@@ -395,7 +380,7 @@ describe("superobjective app host", () => {
           body: job.body,
         });
 
-        await so.storage.receipts.upsert(`receipt:${job.jobId}`, {
+        await receiptSpace.upsert(`receipt:${job.jobId}`, {
           kind: "report",
           body: {
             vendor: job.vendor,
@@ -413,7 +398,7 @@ describe("superobjective app host", () => {
           searchableText: `${job.vendor} ${classification.category} ${reply.response}`,
         });
 
-        await so.storage.emails.upsert(`email:${job.jobId}`, {
+        await emailSpace.upsert(`email:${job.jobId}`, {
           kind: "email",
           body: {
             subject: job.subject,
@@ -458,13 +443,18 @@ describe("superobjective app host", () => {
     const secondHandle = await host.get({
       id: "customer-support-stress",
     });
+    const secondReceipts = requiredSpace(
+      secondHandle.storage.receipts,
+      "secondHandle.storage.receipts",
+    );
+    const secondEmails = requiredSpace(secondHandle.storage.emails, "secondHandle.storage.emails");
 
     const [receipts, emails, jobsState, traces, searchResults] = await Promise.all([
-      secondHandle.storage.receipts.list({ limit: 100 }),
-      secondHandle.storage.emails.list({ limit: 100 }),
+      secondReceipts.list({ limit: 100 }),
+      secondEmails.list({ limit: 100 }),
       secondHandle.state.list({ namespace: "jobs", limit: 100 }),
       secondHandle.state.listTraces({ limit: 100 }),
-      secondHandle.storage.emails.search({
+      secondEmails.search({
         query: "duplicate charge",
         limit: 10,
       }),
@@ -478,7 +468,7 @@ describe("superobjective app host", () => {
     expect(classifyModel.calls).toHaveLength(2);
     expect(replyModel.calls).toHaveLength(2);
 
-    const sampleReceipt = await secondHandle.storage.receipts.get("receipt:job_0");
+    const sampleReceipt = await secondReceipts.get("receipt:job_0");
     expect(sampleReceipt?.metadata.jobId).toBe("job_0");
     expect(sampleReceipt?.metadata.category).toBe("billing");
 

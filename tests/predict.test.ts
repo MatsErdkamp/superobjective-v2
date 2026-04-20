@@ -22,47 +22,32 @@ describe("predict()", () => {
       artifactStore,
     });
 
-    const TriageTicket = so.signature({
-      name: "triage_ticket_predict_test",
-      instructions: so.text({
-        value: "Classify a support ticket for routing.",
+    const TriageTicket = so
+      .signature("triage_ticket_predict_test")
+      .withInstructions("Classify a support ticket for routing.", {
         optimize: true,
-      }),
-      input: {
-        subject: so.input(z.string(), {
-          description: so.text({
-            value: "The support ticket subject line.",
-            optimize: true,
-          }),
-        }),
-        body: so.input(z.string(), {
-          description: so.text({
-            value: "The customer-written support request body.",
-            optimize: true,
-          }),
-        }),
-      },
-      output: {
-        category: so.output(z.enum(["billing", "technical", "other"]), {
-          description: so.text({
-            value: "The queue that should handle the request.",
-            optimize: true,
-          }),
-        }),
-        priority: so.output(z.enum(["low", "medium", "high"]), {
-          description: so.text({
-            value: "Urgency based on impact and time sensitivity.",
-            optimize: true,
-          }),
-        }),
-        needsHuman: so.output(z.boolean(), {
-          description: so.text({
-            value: "Whether this request requires a human agent.",
-            optimize: true,
-          }),
-        }),
-      },
-    });
+      })
+      .withInput("subject", z.string(), {
+        description: "The support ticket subject line.",
+        optimize: true,
+      })
+      .withInput("body", z.string(), {
+        description: "The customer-written support request body.",
+        optimize: true,
+      })
+      .withOutput("category", z.enum(["billing", "technical", "other"]), {
+        description: "The queue that should handle the request.",
+        optimize: true,
+      })
+      .withOutput("priority", z.enum(["low", "medium", "high"]), {
+        description: "Urgency based on impact and time sensitivity.",
+        optimize: true,
+      })
+      .withOutput("needsHuman", z.boolean(), {
+        description: "Whether this request requires a human agent.",
+        optimize: true,
+      })
+      .build();
 
     const triageTicket = so.predict<
       {

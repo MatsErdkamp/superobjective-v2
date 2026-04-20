@@ -76,48 +76,35 @@ export const sendEmail = so.tool({
   },
 });
 
-export const TraceProbeIntake = so.signature({
-  name: "trace_probe_intake",
-  instructions: so.text({
-    value:
-      "Classify the incoming support request into a concrete queue, intent, and customer tone for tracing diagnostics.",
+export const TraceProbeIntake = so
+  .signature("trace_probe_intake")
+  .withInstructions(
+    "Classify the incoming support request into a concrete queue, intent, and customer tone for tracing diagnostics.",
+    {
+      optimize: true,
+    },
+  )
+  .withInput("subject", z.string(), {
+    description: "The support ticket subject line.",
     optimize: true,
-  }),
-  input: {
-    subject: so.input(z.string(), {
-      description: so.text({
-        value: "The support ticket subject line.",
-        optimize: true,
-      }),
-    }),
-    body: so.input(z.string(), {
-      description: so.text({
-        value: "The customer-written support request body.",
-        optimize: true,
-      }),
-    }),
-  },
-  output: {
-    queue: so.output(z.enum(["billing", "technical", "account", "trust-and-safety"]), {
-      description: so.text({
-        value: "The primary internal queue that should own the case.",
-        optimize: true,
-      }),
-    }),
-    intent: so.output(z.enum(["refund", "access", "degradation", "policy-review"]), {
-      description: so.text({
-        value: "The normalized user intent used for routing.",
-        optimize: true,
-      }),
-    }),
-    customerTone: so.output(z.enum(["calm", "frustrated", "urgent"]), {
-      description: so.text({
-        value: "The customer tone inferred from the request.",
-        optimize: true,
-      }),
-    }),
-  },
-});
+  })
+  .withInput("body", z.string(), {
+    description: "The customer-written support request body.",
+    optimize: true,
+  })
+  .withOutput("queue", z.enum(["billing", "technical", "account", "trust-and-safety"]), {
+    description: "The primary internal queue that should own the case.",
+    optimize: true,
+  })
+  .withOutput("intent", z.enum(["refund", "access", "degradation", "policy-review"]), {
+    description: "The normalized user intent used for routing.",
+    optimize: true,
+  })
+  .withOutput("customerTone", z.enum(["calm", "frustrated", "urgent"]), {
+    description: "The customer tone inferred from the request.",
+    optimize: true,
+  })
+  .build();
 
 export const traceProbeIntake = so.predict<
   {
@@ -133,66 +120,51 @@ export const traceProbeIntake = so.predict<
   adapter: so.adapters.xml(),
 });
 
-export const TraceProbeRisk = so.signature({
-  name: "trace_probe_risk",
-  instructions: so.text({
-    value:
-      "Assess urgency, escalation pressure, and whether a human specialist should review the request.",
+export const TraceProbeRisk = so
+  .signature("trace_probe_risk")
+  .withInstructions(
+    "Assess urgency, escalation pressure, and whether a human specialist should review the request.",
+    {
+      optimize: true,
+    },
+  )
+  .withInput("subject", z.string(), {
+    description: "The support ticket subject line.",
     optimize: true,
-  }),
-  input: {
-    subject: so.input(z.string(), {
-      description: so.text({
-        value: "The support ticket subject line.",
-        optimize: true,
-      }),
-    }),
-    body: so.input(z.string(), {
-      description: so.text({
-        value: "The customer-written support request body.",
-        optimize: true,
-      }),
-    }),
-    queue: so.input(z.enum(["billing", "technical", "account", "trust-and-safety"]), {
-      description: so.text({
-        value: "The queue predicted by the intake stage.",
-        optimize: true,
-      }),
-    }),
-    intent: so.input(z.enum(["refund", "access", "degradation", "policy-review"]), {
-      description: so.text({
-        value: "The intent predicted by the intake stage.",
-        optimize: true,
-      }),
-    }),
-    customerTone: so.input(z.enum(["calm", "frustrated", "urgent"]), {
-      description: so.text({
-        value: "The tone predicted by the intake stage.",
-        optimize: true,
-      }),
-    }),
-  },
-  output: {
-    severity: so.output(z.enum(["low", "medium", "high"]), {
-      description: so.text({
-        value: "The urgency of the request.",
-        optimize: true,
-      }),
-    }),
-    escalationReason: so.output(z.enum(["none", "financial-risk", "service-risk", "policy-risk"]), {
-      description: so.text({
-        value: "Why the request should or should not be escalated.",
-        optimize: true,
-      }),
-    }),
-    needsHuman: so.output(z.boolean(), {
-      description: so.text({
-        value: "Whether a human specialist should take over.",
-        optimize: true,
-      }),
-    }),
-  },
-});
+  })
+  .withInput("body", z.string(), {
+    description: "The customer-written support request body.",
+    optimize: true,
+  })
+  .withInput("queue", z.enum(["billing", "technical", "account", "trust-and-safety"]), {
+    description: "The queue predicted by the intake stage.",
+    optimize: true,
+  })
+  .withInput("intent", z.enum(["refund", "access", "degradation", "policy-review"]), {
+    description: "The intent predicted by the intake stage.",
+    optimize: true,
+  })
+  .withInput("customerTone", z.enum(["calm", "frustrated", "urgent"]), {
+    description: "The tone predicted by the intake stage.",
+    optimize: true,
+  })
+  .withOutput("severity", z.enum(["low", "medium", "high"]), {
+    description: "The urgency of the request.",
+    optimize: true,
+  })
+  .withOutput(
+    "escalationReason",
+    z.enum(["none", "financial-risk", "service-risk", "policy-risk"]),
+    {
+      description: "Why the request should or should not be escalated.",
+      optimize: true,
+    },
+  )
+  .withOutput("needsHuman", z.boolean(), {
+    description: "Whether a human specialist should take over.",
+    optimize: true,
+  })
+  .build();
 
 export const traceProbeRisk = so.predict<
   {
@@ -211,84 +183,63 @@ export const traceProbeRisk = so.predict<
   adapter: so.adapters.xml(),
 });
 
-export const TraceProbeResolution = so.signature({
-  name: "trace_probe_resolution",
-  instructions: so.text({
-    value:
-      "Produce an operator-facing summary, next action, and customer reply draft using the earlier diagnostic stages.",
+export const TraceProbeResolution = so
+  .signature("trace_probe_resolution")
+  .withInstructions(
+    "Produce an operator-facing summary, next action, and customer reply draft using the earlier diagnostic stages.",
+    {
+      optimize: true,
+    },
+  )
+  .withInput("subject", z.string(), {
+    description: "The support ticket subject line.",
     optimize: true,
-  }),
-  input: {
-    subject: so.input(z.string(), {
-      description: so.text({
-        value: "The support ticket subject line.",
-        optimize: true,
-      }),
-    }),
-    body: so.input(z.string(), {
-      description: so.text({
-        value: "The customer-written support request body.",
-        optimize: true,
-      }),
-    }),
-    queue: so.input(z.enum(["billing", "technical", "account", "trust-and-safety"]), {
-      description: so.text({
-        value: "The queue predicted by the intake stage.",
-        optimize: true,
-      }),
-    }),
-    intent: so.input(z.enum(["refund", "access", "degradation", "policy-review"]), {
-      description: so.text({
-        value: "The intent predicted by the intake stage.",
-        optimize: true,
-      }),
-    }),
-    customerTone: so.input(z.enum(["calm", "frustrated", "urgent"]), {
-      description: so.text({
-        value: "The tone predicted by the intake stage.",
-        optimize: true,
-      }),
-    }),
-    severity: so.input(z.enum(["low", "medium", "high"]), {
-      description: so.text({
-        value: "The urgency predicted by the risk stage.",
-        optimize: true,
-      }),
-    }),
-    escalationReason: so.input(z.enum(["none", "financial-risk", "service-risk", "policy-risk"]), {
-      description: so.text({
-        value: "The escalation rationale predicted by the risk stage.",
-        optimize: true,
-      }),
-    }),
-    needsHuman: so.input(z.boolean(), {
-      description: so.text({
-        value: "Whether the risk stage recommended human review.",
-        optimize: true,
-      }),
-    }),
-  },
-  output: {
-    operatorSummary: so.output(z.string(), {
-      description: so.text({
-        value: "A concise operator-facing summary of the case.",
-        optimize: true,
-      }),
-    }),
-    nextAction: so.output(z.string(), {
-      description: so.text({
-        value: "The immediate next action for the operations team.",
-        optimize: true,
-      }),
-    }),
-    customerReply: so.output(z.string(), {
-      description: so.text({
-        value: "A concise customer reply draft.",
-        optimize: true,
-      }),
-    }),
-  },
-});
+  })
+  .withInput("body", z.string(), {
+    description: "The customer-written support request body.",
+    optimize: true,
+  })
+  .withInput("queue", z.enum(["billing", "technical", "account", "trust-and-safety"]), {
+    description: "The queue predicted by the intake stage.",
+    optimize: true,
+  })
+  .withInput("intent", z.enum(["refund", "access", "degradation", "policy-review"]), {
+    description: "The intent predicted by the intake stage.",
+    optimize: true,
+  })
+  .withInput("customerTone", z.enum(["calm", "frustrated", "urgent"]), {
+    description: "The tone predicted by the intake stage.",
+    optimize: true,
+  })
+  .withInput("severity", z.enum(["low", "medium", "high"]), {
+    description: "The urgency predicted by the risk stage.",
+    optimize: true,
+  })
+  .withInput(
+    "escalationReason",
+    z.enum(["none", "financial-risk", "service-risk", "policy-risk"]),
+    {
+      description: "The escalation rationale predicted by the risk stage.",
+      optimize: true,
+    },
+  )
+  .withInput("needsHuman", z.boolean(), {
+    description: "Whether the risk stage recommended human review.",
+    optimize: true,
+  })
+  .withOutput("operatorSummary", z.string(), {
+    description: "A concise operator-facing summary of the case.",
+    optimize: true,
+  })
+  .withOutput("nextAction", z.string(), {
+    description: "The immediate next action for the operations team.",
+    optimize: true,
+  })
+  .withOutput("customerReply", z.string(), {
+    description: "A concise customer reply draft.",
+    optimize: true,
+  })
+  .build();
 
 export const traceProbeResolution = so.predict<
   {

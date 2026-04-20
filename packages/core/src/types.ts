@@ -75,6 +75,70 @@ export type Signature<TInput extends FieldRecord, TOutput extends FieldRecord> =
   metadata?: Record<string, unknown>;
 };
 
+export interface SignatureBuilder<
+  TName extends string,
+  TInput extends FieldRecord,
+  TOutput extends FieldRecord,
+> {
+  withInstructions(value: string, options?: { optimize?: boolean }): SignatureBuilder<
+    TName,
+    TInput,
+    TOutput
+  >;
+  withInstructions(value: TextParam): SignatureBuilder<TName, TInput, TOutput>;
+  withInstruction(value: string, options?: { optimize?: boolean }): SignatureBuilder<
+    TName,
+    TInput,
+    TOutput
+  >;
+  withInstruction(value: TextParam): SignatureBuilder<TName, TInput, TOutput>;
+  withInput<
+    TKey extends string,
+    T,
+    TSchema extends z.ZodType<T>,
+    TOptional extends boolean | undefined = undefined,
+  >(
+    name: TKey,
+    schema: TSchema,
+    options: {
+      description: string | TextParam;
+      optimize?: boolean;
+      optional?: TOptional;
+      default?: TOptional extends true ? T | undefined : T;
+      examples?: Array<TOptional extends true ? T | undefined : T>;
+      metadata?: Record<string, unknown>;
+    },
+  ): SignatureBuilder<
+    TName,
+    Omit<TInput, TKey> & Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>,
+    TOutput
+  >;
+  withOutput<
+    TKey extends string,
+    T,
+    TSchema extends z.ZodType<T>,
+    TOptional extends boolean | undefined = undefined,
+  >(
+    name: TKey,
+    schema: TSchema,
+    options: {
+      description: string | TextParam;
+      optimize?: boolean;
+      optional?: TOptional;
+      default?: TOptional extends true ? T | undefined : T;
+      examples?: Array<TOptional extends true ? T | undefined : T>;
+      metadata?: Record<string, unknown>;
+    },
+  ): SignatureBuilder<
+    TName,
+    TInput,
+    Omit<TOutput, TKey> &
+      Record<TKey, Field<TOptional extends true ? T | undefined : T, TSchema>>
+  >;
+  withMetadata(metadata: Record<string, unknown>): SignatureBuilder<TName, TInput, TOutput>;
+  build(): Signature<TInput, TOutput>;
+}
+
 export type Example<TInput, TExpected> = {
   id?: string;
   input: TInput;
