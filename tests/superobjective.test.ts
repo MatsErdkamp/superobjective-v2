@@ -218,4 +218,47 @@ describe("superobjective prototype", () => {
       category: "billing",
     });
   });
+
+  it("prefers the kernel durable object when SO_KERNEL is bound", async () => {
+    const worker = createCloudflareWorker({
+      project: so.project({
+        programs: [createTriageModule()],
+      }) as ProjectLike,
+    });
+
+    const forwardedPaths: string[] = [];
+    const env = {
+      SO_KERNEL: {
+        getByName(name: string) {
+          expect(name).toBe("default");
+          return {
+            async fetch(request: Request) {
+              forwardedPaths.push(new URL(request.url).pathname);
+              return new Response(JSON.stringify({ ok: true, delegated: true }), {
+                status: 200,
+                headers: {
+                  "content-type": "application/json",
+                },
+              });
+            },
+          };
+        },
+      },
+    };
+
+    const response = await worker.fetch(
+      new Request("https://example.com/kernel/traces/run_demo"),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      ok: boolean;
+      delegated: boolean;
+    };
+
+    expect(payload.ok).toBe(true);
+    expect(payload.delegated).toBe(true);
+    expect(forwardedPaths).toEqual(["/kernel/traces/run_demo"]);
+  });
 });

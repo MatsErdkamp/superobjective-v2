@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type {
   CallableTargetLike,
+  CorpusDescriptorLike,
   JsonSchema,
   McpSurfaceLike,
   ModelMessageLike,
@@ -163,7 +164,10 @@ export function getTargetId<TEnv>(
 
 export function getTargetKind(
   target: CallableTargetLike<unknown, unknown, unknown> | ToolLike<unknown, unknown, unknown>,
-): "predict" | "program" | "tool" {
+): "predict" | "program" | "tool" | "rlm" {
+  if (target.kind === "rlm") {
+    return "rlm";
+  }
   if ("execute" in target) {
     return "tool";
   }
@@ -194,6 +198,17 @@ function normalizeByName<T extends { name: string }>(
   return map;
 }
 
+function normalizeCorpora(items: CorpusDescriptorLike[] | undefined): Map<string, CorpusDescriptorLike> {
+  const map = new Map<string, CorpusDescriptorLike>();
+  for (const item of items ?? []) {
+    if (map.has(item.id)) {
+      throw new Error(`Duplicate corpus id "${item.id}" in project graph.`);
+    }
+    map.set(item.id, item);
+  }
+  return map;
+}
+
 export function normalizeProject<TEnv = unknown>(
   project: ProjectLike<TEnv>,
 ): NormalizedProjectLike<TEnv> {
@@ -211,6 +226,7 @@ export function normalizeProject<TEnv = unknown>(
     agents: normalizeByName(project.agents, "agent"),
     rpc: normalizeByName(project.rpc, "rpc surface"),
     mcp: normalizeByName(project.mcp, "mcp surface"),
+    corpora: normalizeCorpora(project.corpora),
   };
 }
 

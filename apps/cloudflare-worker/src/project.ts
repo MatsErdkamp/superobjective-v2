@@ -1,6 +1,8 @@
 import { so } from "superobjective";
 
+import { solveLongCotQuestion } from "./longcot-probe";
 import { supportFlow } from "./support-flow";
+import { inspectLaunchDossier } from "./rlm-probe";
 import {
   checkEligibility,
   fetchData,
@@ -65,6 +67,8 @@ export const project = so.project({
   programs: [
     triageTicket,
     supportFlow,
+    inspectLaunchDossier,
+    solveLongCotQuestion,
     traceProbeIntake,
     traceProbeRisk,
     traceProbeResolution,

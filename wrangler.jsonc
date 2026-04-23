@@ -22,23 +22,32 @@
       "namespace": "default",
     },
   ],
+  "worker_loaders": [
+    {
+      "binding": "LOADER",
+    },
+  ],
   "durable_objects": {
     "bindings": [
+      {
+        "name": "SO_KERNEL",
+        "class_name": "ModuleKernel",
+      },
       {
         "name": "SO_APP_STATE",
         "class_name": "AppStateAgent",
       },
       {
         "name": "SO_AGENT",
-        "class_name": "RpcHost",
+        "class_name": "AgentHost",
       },
       {
         "name": "SO_THINK",
-        "class_name": "HostedAgentRouteHost",
+        "class_name": "ThinkHost",
       },
       {
         "name": "SO_MCP",
-        "class_name": "HostedMcpRouteHost",
+        "class_name": "McpHost",
       },
     ],
   },
@@ -50,6 +59,10 @@
     {
       "tag": "superobjective-hosts-v2",
       "new_sqlite_classes": ["AppStateAgent"],
+    },
+    {
+      "tag": "superobjective-kernel-v1",
+      "new_sqlite_classes": ["ModuleKernel"],
     },
   ],
 }

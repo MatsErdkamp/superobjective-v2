@@ -3,6 +3,7 @@ import type {
   PredictModule,
   Program,
   ProgramContext,
+  RLMModule,
   RunOptions,
   RuntimeContext,
   TextCandidate,
@@ -204,7 +205,11 @@ async function executeProgram<TInput, TOutput>(
 }
 
 function isTool<TInput, TOutput>(
-  value: PredictModule<TInput, TOutput> | Program<TInput, TOutput> | Tool<TInput, TOutput>,
+  value:
+    | PredictModule<TInput, TOutput>
+    | Program<TInput, TOutput>
+    | Tool<TInput, TOutput>
+    | RLMModule<TInput, TOutput>,
 ): value is Tool<TInput, TOutput> {
   return "execute" in value && typeof value.execute === "function";
 }

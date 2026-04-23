@@ -5,6 +5,7 @@ const PHONE_RE = /\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._\-+/=]+\b/gi;
 const API_KEY_RE = /\b(?:sk|pk|api|token)_[A-Za-z0-9_-]{8,}\b/gi;
 const CREDIT_CARD_RE = /\b(?:\d[ -]*?){13,19}\b/g;
+const STRUCTURAL_ID_KEYS = new Set(["runId", "traceId", "targetId"]);
 
 function redactString(value: string) {
   return value
@@ -28,7 +29,7 @@ function deepRedact<TValue>(value: TValue): TValue {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
         key,
-        deepRedact(entry),
+        STRUCTURAL_ID_KEYS.has(key) ? entry : deepRedact(entry),
       ]),
     ) as TValue;
   }

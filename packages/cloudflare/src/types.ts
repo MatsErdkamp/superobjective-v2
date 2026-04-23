@@ -5,6 +5,16 @@ import type {
   CallableTargetLike as HostingCallableTargetLike,
   CompiledArtifactLike as HostingCompiledArtifactLike,
   ComponentTraceLike as HostingComponentTraceLike,
+  CorpusDescriptorLike as HostingCorpusDescriptorLike,
+  CorpusFileHandleLike as HostingCorpusFileHandleLike,
+  CorpusProviderLike as HostingCorpusProviderLike,
+  CorpusRetrievalDescriptorLike as HostingCorpusRetrievalDescriptorLike,
+  CorpusRuntimeHandleLike as HostingCorpusRuntimeHandleLike,
+  CorpusSearchChunkLike as HostingCorpusSearchChunkLike,
+  CorpusSearchHandleLike as HostingCorpusSearchHandleLike,
+  CorpusSearchResultLike as HostingCorpusSearchResultLike,
+  CorpusStorageDescriptorLike as HostingCorpusStorageDescriptorLike,
+  CorpusWorkspaceLike as HostingCorpusWorkspaceLike,
   ExecutionContextLike as HostingExecutionContextLike,
   JsonSchema as HostingJsonSchema,
   LoggerLike as HostingLoggerLike,
@@ -111,7 +121,13 @@ export type AISearchNamespaceLike = {
 export type CloudflareEnvLike = Record<string, unknown> & {
   AI?: WorkersAIBindingLike;
   SO_ARTIFACTS?: R2BucketLike;
+  SO_DATA?: R2BucketLike;
   AI_SEARCH?: AISearchNamespaceLike;
+  LOADER?: unknown;
+  SO_KERNEL?: unknown;
+  SO_AGENT?: unknown;
+  SO_MCP?: unknown;
+  SO_THINK?: unknown;
   SO_APP_STATE?: unknown;
 };
 
@@ -125,6 +141,15 @@ export type ToolCallTraceLike = HostingToolCallTraceLike;
 export type ComponentTraceLike = HostingComponentTraceLike;
 export type RunTraceLike = HostingRunTraceLike;
 export type CompiledArtifactLike = HostingCompiledArtifactLike;
+export type CorpusStorageDescriptorLike = HostingCorpusStorageDescriptorLike;
+export type CorpusRetrievalDescriptorLike = HostingCorpusRetrievalDescriptorLike;
+export type CorpusDescriptorLike = HostingCorpusDescriptorLike;
+export type CorpusSearchChunkLike = HostingCorpusSearchChunkLike;
+export type CorpusSearchResultLike = HostingCorpusSearchResultLike;
+export type CorpusFileHandleLike = HostingCorpusFileHandleLike;
+export type CorpusSearchHandleLike = HostingCorpusSearchHandleLike;
+export type CorpusWorkspaceLike = HostingCorpusWorkspaceLike;
+export type CorpusRuntimeHandleLike = HostingCorpusRuntimeHandleLike;
 export type TraceStoreLike = HostingTraceStoreLike;
 export type ArtifactStoreLike = HostingArtifactStoreLike;
 export type BlobStoreLike = HostingBlobStoreLike;
@@ -158,6 +183,7 @@ export type McpSurfaceLike = HostingMcpSurfaceLike<CloudflareEnvLike>;
 export type ProjectLike = HostingProjectLike<CloudflareEnvLike>;
 export type NormalizedProjectLike = HostingNormalizedProjectLike<CloudflareEnvLike>;
 export type ExecutionContextLike = HostingExecutionContextLike;
+export type CorpusProviderLike<TEnv = CloudflareEnvLike> = HostingCorpusProviderLike<TEnv>;
 
 export type DevelopmentMode = "local" | "local-remote-bindings" | "remote-preview" | "deploy";
 

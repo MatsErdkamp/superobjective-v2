@@ -1,3 +1,4 @@
+export { bindingInternals, from, prepare } from "./bindings.js";
 export {
   text,
   input,
@@ -20,7 +21,8 @@ export {
 } from "./adapters.js";
 export { predict } from "./predict.js";
 export { program } from "./program.js";
-export { tool, agent, rpc, mcp, project } from "./project.js";
+export { rlm } from "./rlm.js";
+export { tool, corpus, agent, rpc, mcp, project } from "./project.js";
 export { examples, splitExamples } from "./examples.js";
 export { metric } from "./metric.js";
 export { filesystem, filesystemStore, memory, memoryStore, stores } from "./stores.js";
@@ -43,13 +45,25 @@ export type {
   AnyTarget,
   ArtifactStore,
   CompiledArtifact,
+  CorpusDescriptor,
+  CorpusFileHandle,
+  CorpusProvider,
+  CorpusRetrievalDescriptor,
+  CorpusRuntimeHandle,
+  CorpusSearchChunk,
+  CorpusSearchHandle,
+  CorpusSearchResult,
+  CorpusStorageDescriptor,
+  CorpusWorkspace,
   ComponentTrace,
+  ExecutionPlanTrace,
   Example,
   Field,
   FieldRecord,
   InferFields,
   InferInput,
   InferOutput,
+  InputSource,
   JsonPrimitive,
   JsonSchema,
   JsonValue,
@@ -57,6 +71,9 @@ export type {
   McpSurface,
   Metric,
   MetricContext,
+  ModuleChild,
+  ModuleKind,
+  ModuleNode,
   ModelCallTrace,
   ModelHandle,
   ModelMessage,
@@ -69,6 +86,18 @@ export type {
   ProgramContext,
   Project,
   PromptInspection,
+  RLMExecuteStepRequest,
+  RLMExecuteStepResult,
+  RLMHistoryEntry,
+  RLMModule,
+  RLMOptions,
+  RLMPreparedContext,
+  RLMQueryOptions,
+  RLMQueryProvider,
+  RLMResource,
+  RLMRuntime,
+  RLMSessionCheckpoint,
+  RLMSession,
   RpcSurface,
   RunOptions,
   RunTrace,
@@ -77,15 +106,20 @@ export type {
   SerializedError,
   Signature,
   SignatureBuilder,
+  ProgrammableStepTrace,
+  ProgrammableTrace,
   StructuredGenerationBridge,
   StructuredGenerationResult,
   TextCandidate,
   TextParam,
   TokenUsage,
   Tool,
+  ToolBindingDefinition,
+  ToolBindingState,
   ToolCallTrace,
   ToolContext,
   ToolDefinition,
+  ToolExecutionMode,
   TraceRedactor,
   TraceStore,
 } from "./types.js";
@@ -108,13 +142,15 @@ export type {
 } from "./app.js";
 
 import { adapters } from "./adapters.js";
+import { from, prepare } from "./bindings.js";
 import { compile } from "./compile.js";
 import { init } from "./app.js";
 import { examples, splitExamples } from "./examples.js";
 import { metric } from "./metric.js";
 import { predict } from "./predict.js";
 import { program } from "./program.js";
-import { agent, mcp, project, rpc, tool } from "./project.js";
+import { rlm } from "./rlm.js";
+import { agent, corpus, mcp, project, rpc, tool } from "./project.js";
 import { redactors } from "./redactors.js";
 import {
   configure,
@@ -134,7 +170,11 @@ export const so = {
   signature,
   predict,
   program,
+  rlm,
   tool,
+  corpus,
+  from,
+  prepare,
   examples,
   splitExamples,
   metric,

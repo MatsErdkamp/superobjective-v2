@@ -15,6 +15,17 @@ import {
   createSqliteTraceStore,
 } from "./stores";
 import { createCloudflareHost } from "./app";
+import {
+  bindProjectCorporaRuntime,
+  createCorpusProvider,
+  createListCorpusFilesTool,
+  createProjectCorpusProvider,
+  createReadCorpusFileTool,
+  createSearchCorpusTool,
+  mergeCorpusProviders,
+  prepareCorpusContext,
+} from "./corpora";
+import { createCloudflareRlmRuntime } from "./rlm";
 import type {
   BlobStoreLike,
   CloudflareEnvLike,
@@ -553,6 +564,12 @@ export function bindRuntimeEnv(
     bound.artifactStore = runtime.artifactStore.withEnv(env);
   }
 
+  if (runtime?.corpora?.withEnv != null && env != null) {
+    bound.corpora = runtime.corpora.withEnv(env);
+  } else if (runtime?.corpora != null) {
+    bound.corpora = runtime.corpora;
+  }
+
   return bound;
 }
 
@@ -584,6 +601,19 @@ export const cloudflare = Object.assign(
       fallbackStore?: BlobStoreLike;
     }): BlobStoreLike {
       return new BoundR2BlobStore(options);
+    },
+    corpora: {
+      provider: createCorpusProvider,
+      fromProject: createProjectCorpusProvider,
+      mergeProviders: mergeCorpusProviders,
+      bindRuntime: bindProjectCorporaRuntime,
+      prepareContext: prepareCorpusContext,
+      listFilesTool: createListCorpusFilesTool,
+      readFileTool: createReadCorpusFileTool,
+      searchTool: createSearchCorpusTool,
+    },
+    rlm: {
+      runtime: createCloudflareRlmRuntime,
     },
   },
 );

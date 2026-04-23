@@ -18,6 +18,7 @@ export function createExecutionState(args: {
   targetId: string;
   targetKind: RunTrace["targetKind"];
   input: unknown;
+  runId?: string;
   metadata?: Record<string, unknown>;
 }): ExecutionState {
   const sampleRate = args.runtime.trace?.sampleRate ?? 1;
@@ -27,7 +28,7 @@ export function createExecutionState(args: {
     runtime: args.runtime,
     sampled,
     trace: {
-      runId: createId("run"),
+      runId: args.runId ?? createId("run"),
       targetId: args.targetId,
       targetKind: args.targetKind,
       startedAt: new Date().toISOString(),

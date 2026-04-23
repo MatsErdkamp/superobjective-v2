@@ -47,6 +47,7 @@ export type ToolCallTraceLike = {
   input: unknown;
   output?: unknown;
   error?: SerializedErrorLike;
+  source?: "model-tool-call" | "direct-binding" | "codemode" | "rlm" | "program";
   startedAt?: string;
   endedAt?: string;
   latencyMs?: number;
@@ -55,7 +56,7 @@ export type ToolCallTraceLike = {
 
 export type ComponentTraceLike = {
   componentId: string;
-  componentKind: "predict" | "program" | "adapter" | "tool" | "rpc" | "mcp";
+  componentKind: "predict" | "program" | "adapter" | "tool" | "rpc" | "mcp" | "rlm";
   startedAt: string;
   endedAt?: string;
   input: unknown;
@@ -79,7 +80,7 @@ export type ComponentTraceLike = {
 export type RunTraceLike = {
   runId: string;
   targetId: string;
-  targetKind: "predict" | "program" | "agent" | "rpc" | "mcp";
+  targetKind: "predict" | "program" | "tool" | "agent" | "rpc" | "mcp" | "rlm";
   startedAt: string;
   endedAt?: string;
   input: unknown;
@@ -164,6 +165,111 @@ export type BlobStoreLike = {
   list?(prefix?: string): Promise<string[]>;
 };
 
+export type CorpusStorageDescriptorLike = {
+  kind: "r2";
+  bucketBinding: string;
+  prefix: string;
+};
+
+export type CorpusRetrievalDescriptorLike = {
+  kind: "ai-search";
+  binding: string;
+  namespace: string;
+  instanceId: string;
+  sourceMode: "external-r2" | "built-in-storage" | "hybrid";
+};
+
+export type CorpusDescriptorLike = {
+  id: string;
+  storage: CorpusStorageDescriptorLike;
+  retrieval?: CorpusRetrievalDescriptorLike;
+  metadata?: Record<string, unknown>;
+};
+
+export type CorpusSearchChunkLike = {
+  id: string;
+  type?: string;
+  score?: number;
+  text: string;
+  item?: {
+    key?: string;
+    timestamp?: number;
+    metadata?: Record<string, unknown>;
+  };
+  scoringDetails?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type CorpusSearchResultLike = {
+  query?: string;
+  chunks: CorpusSearchChunkLike[];
+  raw?: unknown;
+};
+
+export type CorpusFileHandleLike = {
+  list(prefix?: string): Promise<string[]>;
+  getText(path: string): Promise<string>;
+  getBytes(path: string): Promise<Uint8Array>;
+  head?(
+    path: string,
+  ): Promise<
+    | {
+        size?: number;
+        etag?: string;
+        metadata?: Record<string, unknown>;
+      }
+    | null
+  >;
+};
+
+export type CorpusSearchHandleLike = {
+  search(args: {
+    query?: string;
+    messages?: ModelMessageLike[];
+    filters?: Record<string, unknown>;
+    maxResults?: number;
+    instanceIds?: string[];
+  }): Promise<CorpusSearchResultLike>;
+  info?(): Promise<unknown>;
+  stats?(): Promise<unknown>;
+  upload?(
+    name: string,
+    content: string | Uint8Array | ArrayBuffer | ReadableStream,
+    options?: {
+      metadata?: Record<string, string>;
+      waitUntilIndexed?: boolean;
+    },
+  ): Promise<unknown>;
+};
+
+export type CorpusWorkspaceLike = {
+  mkdir?(path: string, options?: { recursive?: boolean }): Promise<void>;
+  writeText(path: string, content: string): Promise<void>;
+  writeBytes(path: string, content: Uint8Array): Promise<void>;
+};
+
+export type CorpusRuntimeHandleLike = {
+  corpus: CorpusDescriptorLike;
+  files: CorpusFileHandleLike;
+  search?: CorpusSearchHandleLike;
+  materializeToWorkspace?(args: {
+    workspace: CorpusWorkspaceLike;
+    paths?: string[];
+    destinationPrefix?: string;
+    overwrite?: boolean;
+  }): Promise<{
+    corpusId: string;
+    destinationPrefix: string;
+    files: string[];
+  }>;
+};
+
+export type CorpusProviderLike<TEnv = unknown> = {
+  withEnv?(env: TEnv): CorpusProviderLike<TEnv>;
+  resolve(corpusId: string): Promise<CorpusRuntimeHandleLike>;
+  list?(): Promise<CorpusDescriptorLike[]>;
+};
+
 export type ToolDefinitionLike = {
   name: string;
   description?: string | undefined;
@@ -233,6 +339,7 @@ export type RuntimeContextLike<TEnv = unknown> = {
   traceStore?: TraceStoreLike;
   artifactStore?: ArtifactStoreLike;
   blobStore?: BlobStoreLike;
+  corpora?: CorpusProviderLike<TEnv>;
   logger?: LoggerLike;
   env?: TEnv | undefined;
 };
@@ -323,6 +430,7 @@ export type ProjectLike<TEnv = unknown> = {
   agents?: Array<AgentLike<TEnv>>;
   rpc?: Array<RpcSurfaceLike<TEnv>>;
   mcp?: Array<McpSurfaceLike<TEnv>>;
+  corpora?: Array<CorpusDescriptorLike>;
 };
 
 export type NormalizedProjectLike<TEnv = unknown> = {
@@ -330,6 +438,7 @@ export type NormalizedProjectLike<TEnv = unknown> = {
   agents: Map<string, AgentLike<TEnv>>;
   rpc: Map<string, RpcSurfaceLike<TEnv>>;
   mcp: Map<string, McpSurfaceLike<TEnv>>;
+  corpora: Map<string, CorpusDescriptorLike>;
 };
 
 export type HostedRoutePrefix = "agents" | "rpc" | "mcp";

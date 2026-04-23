@@ -235,8 +235,11 @@ export function getRuntimeContext(overrides?: Partial<RuntimeContext>): RuntimeC
     },
   };
 
+  const env = overrides?.env ?? configuredRuntime.env;
+
   const traceStore = overrides?.traceStore ?? configuredRuntime.traceStore;
   const artifactStore = overrides?.artifactStore ?? configuredRuntime.artifactStore;
+  const corpora = overrides?.corpora ?? configuredRuntime.corpora;
   const redactor = overrides?.redactor ?? configuredRuntime.redactor;
   const logger = overrides?.logger ?? configuredRuntime.logger;
 
@@ -246,11 +249,42 @@ export function getRuntimeContext(overrides?: Partial<RuntimeContext>): RuntimeC
   if (artifactStore) {
     result.artifactStore = artifactStore;
   }
+  if (corpora) {
+    result.corpora = corpora;
+  }
   if (redactor) {
     result.redactor = redactor;
   }
   if (logger) {
     result.logger = logger;
+  }
+  if (env !== undefined) {
+    result.env = env;
+  }
+
+  const knownKeys = new Set([
+    "adapter",
+    "artifactStore",
+    "corpora",
+    "env",
+    "logger",
+    "model",
+    "redactor",
+    "structuredGeneration",
+    "trace",
+    "traceStore",
+  ]);
+
+  for (const source of [configuredRuntime as Record<string, unknown>, overrides as Record<string, unknown> | undefined]) {
+    if (source == null) {
+      continue;
+    }
+    for (const [key, value] of Object.entries(source)) {
+      if (knownKeys.has(key) || value === undefined) {
+        continue;
+      }
+      (result as Record<string, unknown>)[key] = value;
+    }
   }
 
   return result;
@@ -262,7 +296,7 @@ function lazyGepaFactory(config?: unknown): Optimizer<any> {
     version: "0.1.0",
     async compile(args) {
       const mod = await import("@superobjective/optimizer-gepa");
-      return mod.gepa(config as any).compile(args) as Promise<any>;
+      return mod.gepa(config as any).compile(args as any) as Promise<any>;
     },
   };
 }

@@ -33,7 +33,7 @@ describe.skipIf(!liveBaseUrl)("cloudflare live deployment", () => {
     expect(typeof payload.data.needsHuman).toBe("boolean");
     expect(typeof payload.traceId).toBe("string");
     expect(payload.traceId.length).toBeGreaterThan(0);
-  }, 15000);
+  }, 30000);
 
   it("runs the live app host lifecycle against the deployed worker", async () => {
     const appId = `live-app-${Date.now().toString(36)}`;
@@ -150,5 +150,107 @@ describe.skipIf(!liveBaseUrl)("cloudflare live deployment", () => {
         method: "DELETE",
       }).catch(() => undefined);
     }
-  }, 30000);
+  }, 60000);
+
+  it("runs the live RLM kernel route and persists the trajectory", async () => {
+    const dossier = [
+      "Investigation dossier:",
+      ...Array.from({ length: 320 }, (_, index) => `Filler paragraph ${index + 1}.`),
+      "LAUNCH_CODE=ORBIT-9",
+      "Use the launch code only after verification.",
+    ].join("\n");
+
+    const response = await fetch(`${liveBaseUrl}/kernel/rlm/inspect_launch_dossier`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        input: {
+          question: "What is the launch code?",
+          dossier,
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+
+    const payload = (await response.json()) as {
+      ok: boolean;
+      output: {
+        answer: string;
+        evidence: string;
+      };
+      traceId: string;
+    };
+
+    expect(payload.ok).toBe(true);
+    expect(payload.output.answer).toBe("ORBIT-9");
+    expect(payload.output.evidence).toContain("LAUNCH_CODE=ORBIT-9");
+    expect(typeof payload.traceId).toBe("string");
+    expect(payload.traceId.length).toBeGreaterThan(0);
+
+    const traceResponse = await fetch(
+      `${liveBaseUrl}/kernel/traces/${encodeURIComponent(payload.traceId)}`,
+    );
+
+    expect(traceResponse.status).toBe(200);
+
+    const tracePayload = (await traceResponse.json()) as {
+      ok: boolean;
+      trace: {
+        targetId: string;
+        targetKind: string;
+        metadata?: {
+          rlmSession?: {
+            kind?: string;
+            resumed?: boolean;
+          };
+        };
+        programmable?: {
+          mode: string;
+          steps: Array<{
+            index: number;
+            code: string;
+            error?: {
+              message?: string;
+            };
+          }>;
+        };
+        modelCalls: Array<{
+          provider: string;
+          model: string;
+        }>;
+      };
+    };
+
+    expect(tracePayload.ok).toBe(true);
+    expect(tracePayload.trace.targetId).toBe("inspect_launch_dossier");
+    expect(tracePayload.trace.targetKind).toBe("rlm");
+    expect(tracePayload.trace.programmable?.mode).toBe("rlm");
+    expect(tracePayload.trace.metadata?.rlmSession?.kind).toBe("cloudflare-hosted-facet");
+
+    const steps = tracePayload.trace.programmable?.steps ?? [];
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+    expect(steps.map((step) => step.index)).toEqual(
+      Array.from({ length: steps.length }, (_, index) => index + 1),
+    );
+    expect(steps.some((step) => step.code.includes("listResources"))).toBe(true);
+    expect(steps.some((step) => step.code.includes("searchText"))).toBe(true);
+    expect(
+      steps.every(
+        (step) =>
+          !((step.error?.message ?? "").includes("already been declared") ||
+            (step.error?.message ?? "").includes("Identifier")),
+      ),
+    ).toBe(true);
+    expect(tracePayload.trace.modelCalls.length).toBeGreaterThan(0);
+    expect(
+      tracePayload.trace.modelCalls.some(
+        (modelCall) =>
+          modelCall.provider === "cloudflare-workers-ai" &&
+          modelCall.model.includes("gemma-4-26b-a4b-it"),
+      ),
+    ).toBe(true);
+  }, 120000);
 });

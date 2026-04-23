@@ -1,7 +1,12 @@
 import {
+  AgentHost,
   HostedAgentRouteHost,
   HostedMcpRouteHost,
+  McpHost,
+  ModuleKernel,
+  RlmRuntimeHost,
   RpcHost,
+  ThinkHost,
   cloudflare,
   createCloudflareWorker,
   type CloudflareEnvLike,
@@ -41,7 +46,17 @@ function resolveBlobStore(env?: CloudflareEnvLike) {
     : blobStore;
 }
 
-export { AppStateAgent, HostedAgentRouteHost, HostedMcpRouteHost, RpcHost };
+export {
+  AgentHost,
+  AppStateAgent,
+  HostedAgentRouteHost,
+  HostedMcpRouteHost,
+  McpHost,
+  ModuleKernel,
+  RlmRuntimeHost,
+  RpcHost,
+  ThinkHost,
+};
 
 const runtimeWorker = createCloudflareWorker({
   project: project as ProjectLike,

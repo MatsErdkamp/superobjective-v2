@@ -1,9 +1,28 @@
 export { cloudflare } from "./runtime";
 export {
+  CloudflareCorpusProvider,
+  bindProjectCorporaRuntime,
+  createCorpusProvider,
+  createListCorpusFilesTool,
+  createProjectCorpusProvider,
+  createReadCorpusFileTool,
+  createSearchCorpusTool,
+  mergeCorpusProviders,
+  prepareCorpusContext,
+} from "./corpora";
+export { createCloudflareRlmRuntime } from "./rlm";
+export type {
+  CloudflareHostedRlmSessionHandle,
+  CloudflareHostedRlmSessionManager,
+  CloudflareRlmRuntimeOptions,
+} from "./rlm";
+export {
   AgentHost,
   HostedAgentRouteHost,
   HostedMcpRouteHost,
   McpHost,
+  ModuleKernel,
+  RlmRuntimeHost,
   RpcHost,
   ThinkHost,
   createCloudflareWorker,
@@ -17,6 +36,16 @@ export type {
   CloudflareEnvLike,
   CloudflareWorkerLike,
   ComponentTraceLike,
+  CorpusDescriptorLike,
+  CorpusFileHandleLike,
+  CorpusProviderLike,
+  CorpusRetrievalDescriptorLike,
+  CorpusRuntimeHandleLike,
+  CorpusSearchChunkLike,
+  CorpusSearchHandleLike,
+  CorpusSearchResultLike,
+  CorpusStorageDescriptorLike,
+  CorpusWorkspaceLike,
   CreateCloudflareWorkerOptions,
   DevelopmentHintsLike,
   DevelopmentMode,

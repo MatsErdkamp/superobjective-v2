@@ -3,6 +3,7 @@ export {
   HostedAgentRouteHost,
   HostedMcpRouteHost,
   McpHost,
+  ModuleKernel,
   RpcHost,
   ThinkHost,
 } from "../worker";

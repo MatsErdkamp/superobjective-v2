@@ -155,7 +155,7 @@ export function describeFieldType(field: Field<any, z.ZodTypeAny>) {
 }
 
 export function getTargetInputSchema(target: AnyTarget) {
-  if (target.kind === "predict") {
+  if (target.kind === "predict" || target.kind === "rlm") {
     return signatureToInputZodSchema({
       signature: target.signature,
     });
@@ -173,7 +173,7 @@ export function getTargetInputSchema(target: AnyTarget) {
 }
 
 export function getTargetOutputSchema(target: AnyTarget) {
-  if (target.kind === "predict") {
+  if (target.kind === "predict" || target.kind === "rlm") {
     return signatureToOutputZodSchema({
       signature: target.signature,
     });

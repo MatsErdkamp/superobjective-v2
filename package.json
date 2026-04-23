@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "build": "vp run -r build",
+    "benchmark:longcot": "uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py --difficulty longcot",
+    "benchmark:longcot:mini": "uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py --difficulty longcot-mini",
+    "benchmark:longcot:smoke": "uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py --difficulty longcot-mini --domain logic --max-questions 1",
     "clean": "rm -rf .wrangler .vite coverage node_modules apps/*/.git apps/*/.tanstack apps/*/.vscode apps/*/.wrangler apps/*/dist apps/*/node_modules packages/*/dist packages/*/node_modules packages/*/tsconfig.tsbuildinfo tests/node_modules tests/.vite",
     "dev:dashboard": "wrangler dev -c apps/dashboard/wrangler.jsonc",
     "deploy:cloudflare": "wrangler deploy",
@@ -18,6 +21,7 @@
   "dependencies": {
     "@superobjective/cloudflare": "workspace:*",
     "@superobjective/optimizer-gepa": "workspace:*",
+    "chess.js": "^1.4.0",
     "superobjective": "workspace:*"
   },
   "devDependencies": {
