@@ -173,7 +173,7 @@ export function aiSdkStructuredGenerationBridge(): StructuredGenerationBridge {
         ...(args.schemaName ? { schemaName: args.schemaName } : {}),
         ...(args.schemaDescription ? { schemaDescription: args.schemaDescription } : {}),
         ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
-      });
+      } as any);
 
       const structured: StructuredGenerationResult<T> = {
         object: result.object as T,

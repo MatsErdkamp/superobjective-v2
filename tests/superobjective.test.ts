@@ -150,6 +150,131 @@ describe("superobjective prototype", () => {
     expect(artifact.optimizer.id).toBe("gepa");
   });
 
+  it("passes real execution traces to GEPA metrics by default", async () => {
+    so.configure({
+      model: mockModel([
+        { category: "billing" },
+        { category: "billing" },
+      ]),
+      traceStore: so.stores.memory(),
+      artifactStore: so.stores.memory(),
+    });
+
+    const triage = createTriageModule();
+    const metricTraces: Array<{
+      componentCount: number;
+      modelCallCount: number;
+      targetComponentId?: string;
+      optimizer?: unknown;
+    }> = [];
+
+    const artifact = await so.compile(triage, {
+      optimizer: so.optimizers.gepa({
+        maxMetricCalls: 1,
+        reflectionBatchSize: 1,
+      }),
+      trainset: [
+        {
+          input: { subject: "Refund not received" },
+          expected: { category: "billing" as const },
+        },
+      ],
+      metric: so.metric({
+        name: "trace_presence",
+        evaluate(ctx) {
+          metricTraces.push({
+            componentCount: ctx.trace.components.length,
+            modelCallCount: ctx.trace.modelCalls.length,
+            ...(ctx.target ? { targetComponentId: ctx.target.componentId } : {}),
+            optimizer: ctx.trace.metadata?.optimizer,
+          });
+
+          return {
+            score: ctx.prediction.category === ctx.expected.category ? 1 : 0,
+          };
+        },
+      }),
+      objective: "Improve category accuracy.",
+    });
+
+    expect(artifact.optimizer.id).toBe("gepa");
+    expect(metricTraces.length).toBeGreaterThan(0);
+    expect(metricTraces.every((trace) => trace.componentCount > 0)).toBe(true);
+    expect(metricTraces.every((trace) => trace.modelCallCount > 0)).toBe(true);
+    expect(metricTraces.every((trace) => trace.targetComponentId === "triage_ticket")).toBe(true);
+    expect(metricTraces.every((trace) => trace.optimizer === "gepa")).toBe(true);
+  });
+
+  it("only exposes optimizable tool and agent text candidates", () => {
+    const chat = so.program({
+      name: "candidate_empty_chat",
+      input: z.object({}),
+      output: z.object({}),
+      async run() {
+        return {};
+      },
+    });
+
+    const hiddenTool = so.tool({
+      name: "hidden_lookup",
+      description: so.text("Do not optimize this tool description."),
+      input: z.object({}),
+      output: z.object({}),
+      async execute() {
+        return {};
+      },
+    });
+    const visibleTool = so.tool({
+      name: "visible_lookup",
+      description: so.text({
+        value: "Optimize this tool description.",
+        optimize: true,
+      }),
+      input: z.object({}),
+      output: z.object({}),
+      async execute() {
+        return {};
+      },
+    });
+    const agent = so.agent({
+      name: "candidate_agent",
+      system: so.text("Do not optimize this agent system prompt."),
+      chat,
+      tools: [hiddenTool, visibleTool],
+    });
+
+    expect(hiddenTool.inspectTextCandidate()).toEqual({});
+    expect(visibleTool.inspectTextCandidate()).toEqual({
+      "tool.visible_lookup.description": "Optimize this tool description.",
+    });
+    expect(agent.inspectTextCandidate()).toEqual({
+      "tool.visible_lookup.description": "Optimize this tool description.",
+    });
+  });
+
+  it("exposes optimizable agent system text candidates", () => {
+    const chat = so.program({
+      name: "candidate_visible_system_chat",
+      input: z.object({}),
+      output: z.object({}),
+      async run() {
+        return {};
+      },
+    });
+    const agent = so.agent({
+      name: "visible_system_agent",
+      system: so.text({
+        value: "Optimize this agent system prompt.",
+        optimize: true,
+      }),
+      chat,
+    });
+
+    expect(agent.inspectTextCandidate()).toEqual({
+      "agent.visible_system_agent.system": "Optimize this agent system prompt.",
+    });
+  });
+
   it("serves RPC handlers through the Cloudflare worker surface", async () => {
     const triage = createTriageModule();
     const traceStore = cloudflare.prototypeTraceStore();

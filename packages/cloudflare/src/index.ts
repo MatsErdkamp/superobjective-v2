@@ -17,14 +17,11 @@ export type {
   CloudflareRlmRuntimeOptions,
 } from "./rlm";
 export {
-  AgentHost,
   HostedAgentRouteHost,
   HostedMcpRouteHost,
-  McpHost,
   ModuleKernel,
   RlmRuntimeHost,
   RpcHost,
-  ThinkHost,
   createCloudflareWorker,
 } from "./worker";
 

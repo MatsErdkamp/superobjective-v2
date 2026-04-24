@@ -1,0 +1,151 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": [
+    "package.json",
+    "vite.config.ts",
+    "wrangler.jsonc",
+    "tests/**/*.test.ts",
+    "scripts/**/*.ts",
+    "examples/**/*.ts",
+    "apps/cloudflare-worker/src/worker.ts",
+    "apps/cloudflare-worker/src/project.ts",
+    "apps/cloudflare-worker/src/*-probe.ts",
+    "packages/*/src/index.ts"
+  ],
+  "project": [
+    "**/*.{css,js,jsx,ts,tsx,json,jsonc}",
+    "!**/node_modules/**",
+    "!**/dist/**"
+  ],
+  "ignoreFiles": [
+    "apps/**/src/env.d.ts",
+    "apps/dashboard/src/routeTree.gen.ts"
+  ],
+  "ignoreUnresolved": [
+    "^cloudflare:.*$",
+    "^assets:.*$"
+  ],
+  "ignoreDependencies": [
+    "^cloudflare$"
+  ],
+  "ignoreBinaries": [
+    "uv"
+  ],
+  "ignoreIssues": {
+    "apps/dashboard/src/routeTree.gen.ts": [
+      "exports"
+    ],
+    "apps/dashboard/src/components/**/*.tsx": [
+      "exports",
+      "types"
+    ],
+    "apps/dashboard/src/routes/**/*.tsx": [
+      "exports"
+    ],
+    "apps/cloudflare-worker/src/worker.ts": [
+      "exports"
+    ],
+    "apps/cloudflare-worker/src/*-probe.ts": [
+      "exports"
+    ],
+    "apps/cloudflare-worker/src/workers-ai.ts": [
+      "exports"
+    ],
+    "packages/*/src/**/*.ts": [
+      "exports",
+      "types",
+      "duplicates"
+    ],
+    "packages/core/src/index.ts": [
+      "exports"
+    ],
+    "packages/hosting/src/index.ts": [
+      "exports"
+    ],
+    "packages/cloudflare/src/index.ts": [
+      "exports"
+    ],
+    "packages/cloudflare/src/hosts/index.ts": [
+      "exports"
+    ],
+    "packages/optimizer-gepa/src/index.ts": [
+      "exports"
+    ]
+  },
+  "workspaces": {
+    ".": {
+      "entry": [
+        "package.json",
+        "vite.config.ts",
+        "wrangler.jsonc",
+        "tests/**/*.test.ts",
+        "scripts/**/*.ts",
+        "examples/**/*.ts",
+        "apps/cloudflare-worker/src/worker.ts",
+        "apps/cloudflare-worker/src/project.ts",
+        "apps/cloudflare-worker/src/*-probe.ts"
+      ],
+      "project": [
+        "*.{js,ts,json,jsonc}",
+        "tests/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,tsx}",
+        "examples/**/*.{ts,tsx}",
+        "apps/cloudflare-worker/src/**/*.{ts,tsx}"
+      ]
+    },
+    "apps/dashboard": {
+      "entry": [
+        "package.json",
+        "vite.config.ts",
+        "src/styles.css",
+        "src/router.tsx",
+        "src/routes/**/*.tsx",
+        "src/lib/**/*.ts",
+        "src/components/**/*.tsx",
+        "src/hooks/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.{css,ts,tsx}",
+        "vite.config.ts"
+      ]
+    },
+    "packages/core": {
+      "entry": [
+        "package.json",
+        "src/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/hosting": {
+      "entry": [
+        "package.json",
+        "src/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/cloudflare": {
+      "entry": [
+        "package.json",
+        "src/index.ts",
+        "src/state-agent.ts",
+        "src/hosts/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/optimizer-gepa": {
+      "entry": [
+        "package.json",
+        "src/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    }
+  }
+}

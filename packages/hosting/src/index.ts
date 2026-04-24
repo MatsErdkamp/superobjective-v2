@@ -25,6 +25,7 @@ export {
 } from "./dispatch";
 export type {
   AgentLike,
+  ArtifactTargetKindLike,
   ArtifactStoreLike,
   BlobStoreLike,
   CallableTargetLike,

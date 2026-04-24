@@ -39,15 +39,15 @@
       },
       {
         "name": "SO_AGENT",
-        "class_name": "AgentHost",
+        "class_name": "RpcHost",
       },
       {
         "name": "SO_THINK",
-        "class_name": "ThinkHost",
+        "class_name": "HostedAgentRouteHost",
       },
       {
         "name": "SO_MCP",
-        "class_name": "McpHost",
+        "class_name": "HostedMcpRouteHost",
       },
     ],
   },
@@ -63,6 +63,23 @@
     {
       "tag": "superobjective-kernel-v1",
       "new_sqlite_classes": ["ModuleKernel"],
+    },
+    {
+      "tag": "superobjective-hosts-rename-v1",
+      "renamed_classes": [
+        {
+          "from": "AgentHost",
+          "to": "RpcHost",
+        },
+        {
+          "from": "ThinkHost",
+          "to": "HostedAgentRouteHost",
+        },
+        {
+          "from": "McpHost",
+          "to": "HostedMcpRouteHost",
+        },
+      ],
     },
   ],
 }

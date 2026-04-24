@@ -151,17 +151,76 @@ async function executeExample<TInput, TPrediction, TExpected>(args: {
   }
 
   const candidateBoundTarget = args.target.withCandidate(args.candidate);
-  const rawResult = await candidateBoundTarget(args.example.input);
+  const traceCapture = createTraceCapture();
+  const rawResult = await candidateBoundTarget(args.example.input, {
+    runtime: {
+      traceStore: traceCapture.store,
+      trace: {
+        sampleRate: 1,
+      },
+    },
+    metadata: {
+      optimizer: "gepa",
+      dataset: args.dataset,
+      candidateId: hashTextCandidate(args.candidate),
+      ...(args.example.id ? { exampleId: args.example.id } : {}),
+    },
+    ...(args.signal ? { abortSignal: args.signal } : {}),
+  });
 
   if (looksLikeRunResult(rawResult)) {
+    const trace = rawResult.trace ?? traceCapture.latest();
     return {
       prediction: rawResult.output as TPrediction,
-      ...(rawResult.trace ? { trace: rawResult.trace } : {}),
+      ...(trace ? { trace } : {}),
     };
   }
 
+  const trace = traceCapture.latest();
   return {
     prediction: rawResult as TPrediction,
+    ...(trace ? { trace } : {}),
+  };
+}
+
+function createTraceCapture(): {
+  store: {
+    saveTrace(trace: RunTraceLike): Promise<void>;
+    loadTrace(runId: string): Promise<RunTraceLike | null>;
+    listTraces(args?: {
+      targetKind?: RunTraceLike["targetKind"];
+      targetId?: string;
+    }): Promise<RunTraceLike[]>;
+  };
+  latest(): RunTraceLike | undefined;
+} {
+  const traces: RunTraceLike[] = [];
+
+  return {
+    store: {
+      async saveTrace(trace) {
+        traces.push(trace);
+      },
+      async loadTrace(runId) {
+        return traces.find((trace) => trace.runId === runId) ?? null;
+      },
+      async listTraces(args) {
+        return traces.filter((trace) => {
+          if (args?.targetKind && trace.targetKind !== args.targetKind) {
+            return false;
+          }
+
+          if (args?.targetId && trace.targetId !== args.targetId) {
+            return false;
+          }
+
+          return true;
+        });
+      },
+    },
+    latest() {
+      return traces[traces.length - 1];
+    },
   };
 }
 

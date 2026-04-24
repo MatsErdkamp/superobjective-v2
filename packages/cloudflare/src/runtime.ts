@@ -5,14 +5,12 @@ import {
   R2BackedArtifactStore,
   R2BackedTraceStore,
   createMemoryArtifactStore,
+  createMemoryBlobStore,
   createMemoryTraceStore,
   createPrototypeArtifactStore,
   createPrototypeTraceStore,
-  createR2BlobStore,
   createR2ArtifactStore,
   createR2TraceStore,
-  createSqliteArtifactStore,
-  createSqliteTraceStore,
 } from "./stores";
 import { createCloudflareHost } from "./app";
 import {
@@ -26,6 +24,7 @@ import {
   prepareCorpusContext,
 } from "./corpora";
 import { createCloudflareRlmRuntime } from "./rlm";
+import { asR2Bucket, listR2Keys } from "./r2";
 import type {
   BlobStoreLike,
   CloudflareEnvLike,
@@ -431,7 +430,7 @@ export class BoundR2BlobStore implements BlobStoreLike {
   }) {
     this.binding = options?.binding ?? "SO_ARTIFACTS";
     this.env = options?.env;
-    this.fallbackStore = options?.fallbackStore ?? createR2BlobStore(this.binding);
+    this.fallbackStore = options?.fallbackStore ?? createMemoryBlobStore(this.binding);
   }
 
   withEnv(env: CloudflareEnvLike): BoundR2BlobStore {
@@ -443,18 +442,7 @@ export class BoundR2BlobStore implements BlobStoreLike {
   }
 
   private resolveBucket(): R2BucketLike | null {
-    const candidate = this.env?.[this.binding];
-    if (
-      candidate != null &&
-      typeof candidate === "object" &&
-      "put" in candidate &&
-      typeof candidate.put === "function" &&
-      "get" in candidate &&
-      typeof candidate.get === "function"
-    ) {
-      return candidate as R2BucketLike;
-    }
-    return null;
+    return asR2Bucket(this.env?.[this.binding]);
   }
 
   async put(key: string, value: unknown): Promise<string> {
@@ -507,12 +495,7 @@ export class BoundR2BlobStore implements BlobStoreLike {
       return this.fallbackStore.list?.(prefix) ?? [];
     }
 
-    const response = bucket.list == null ? [] : await bucket.list({ prefix });
-    if (Array.isArray(response)) {
-      return response.map((item) => (typeof item === "string" ? item : item.key));
-    }
-
-    return (response.objects ?? []).map((item) => item.key);
+    return listR2Keys(bucket, prefix);
   }
 }
 
@@ -593,8 +576,6 @@ export const cloudflare = Object.assign(
     r2ArtifactStore: createR2ArtifactStore,
     prototypeTraceStore: createPrototypeTraceStore,
     prototypeArtifactStore: createPrototypeArtifactStore,
-    sqliteTraceStore: createSqliteTraceStore,
-    sqliteArtifactStore: createSqliteArtifactStore,
     r2BlobStore(options?: {
       binding?: string;
       env?: CloudflareEnvLike;

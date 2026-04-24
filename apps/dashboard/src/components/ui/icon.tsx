@@ -17,7 +17,6 @@ import {
   IconCircleDotsFill18,
   IconCircleDottedFill18,
   IconCirclePauseFill18,
-  IconCirclePlayFill18,
   IconCircleQuestionFill18,
   IconCircleStopFill18,
   IconCircleXmarkFill18,
@@ -75,7 +74,6 @@ import {
   IconWrenchFill18,
   IconXmarkFill18,
   IconMediaPlayFill18,
-  IconCalculatorFill18,
   IconCalculator2Fill18,
   IconSuitcase5Fill18,
   IconSteeringWheelFill18,
@@ -100,7 +98,6 @@ import {
   IconCircleDotsFillDuo18,
   IconCircleDottedFillDuo18,
   IconCirclePauseFillDuo18,
-  IconCirclePlayFillDuo18,
   IconCircleQuestionFillDuo18,
   IconCircleStopFillDuo18,
   IconCircleXmarkFillDuo18,
@@ -140,8 +137,6 @@ import {
   IconMsgFillDuo18,
   IconMsgsFillDuo18,
   IconPlusFillDuo18,
-  IconQuickSearchFillDuo18,
-  IconMagnifier2FillDuo18,
   IconRefreshFillDuo18,
   IconRectLayoutGridFillDuo18,
   IconShareRightFillDuo18,
@@ -160,7 +155,6 @@ import {
   IconXmarkFillDuo18,
   IconMagnifierFillDuo18,
   IconMediaPlayFillDuo18,
-  IconCalculatorFillDuo18,
   IconCalculator2FillDuo18,
   IconSuitcase5FillDuo18,
   IconSteeringWheelFillDuo18,
@@ -185,7 +179,6 @@ import {
   IconCircleDotsOutline18,
   IconCircleDottedOutline18,
   IconCirclePauseOutline18,
-  IconCirclePlayOutline18,
   IconCircleQuestionOutline18,
   IconCircleStopOutline18,
   IconCircleXmarkOutline18,
@@ -225,8 +218,6 @@ import {
   IconMsgOutline18,
   IconMsgsOutline18,
   IconPlusOutline18,
-  IconQuickSearchOutline18,
-  IconMagnifier2Outline18,
   IconRefreshOutline18,
   IconRectLayoutGridOutline18,
   IconShareRightOutline18,
@@ -245,7 +236,6 @@ import {
   IconXmarkOutline18,
   IconMagnifierOutline18,
   IconMediaPlayOutline18,
-  IconCalculatorOutline18,
   IconCalculator2Outline18,
   IconSuitcase5Outline18,
   IconSteeringWheelOutline18,
@@ -270,7 +260,6 @@ import {
   IconCircleDotsOutlineDuo18,
   IconCircleDottedOutlineDuo18,
   IconCirclePauseOutlineDuo18,
-  IconCirclePlayOutlineDuo18,
   IconCircleQuestionOutlineDuo18,
   IconCircleStopOutlineDuo18,
   IconCircleXmarkOutlineDuo18,
@@ -310,8 +299,6 @@ import {
   IconMsgOutlineDuo18,
   IconMsgsOutlineDuo18,
   IconPlusOutlineDuo18,
-  IconQuickSearchOutlineDuo18,
-  IconMagnifier2OutlineDuo18,
   IconRefreshOutlineDuo18,
   IconRectLayoutGridOutlineDuo18,
   IconShareRightOutlineDuo18,
@@ -330,7 +317,6 @@ import {
   IconXmarkOutlineDuo18,
   IconMagnifierOutlineDuo18,
   IconMediaPlayOutlineDuo18,
-  IconCalculatorOutlineDuo18,
   IconCalculator2OutlineDuo18,
   IconSuitcase5OutlineDuo18,
   IconSteeringWheelOutlineDuo18,
@@ -342,14 +328,18 @@ export type IconVariant = "fill" | "fillduo" | "outline" | "outlineduo";
 
 const DEFAULT_ICON_VARIANT: IconVariant = "outlineduo";
 
-export type IconProps = SVGProps<SVGSVGElement> & {
+type NucleoIconProps = Omit<SVGProps<SVGSVGElement>, "strokeWidth"> & {
+  strokeWidth?: number;
+};
+
+export type IconProps = Omit<SVGProps<SVGSVGElement>, "strokeWidth"> & {
   absoluteStrokeWidth?: boolean;
   size?: number | string;
   strokeWidth?: number;
   variant?: IconVariant;
 };
 
-type NucleoIconComponent = ComponentType<SVGProps<SVGSVGElement>>;
+type NucleoIconComponent = ComponentType<NucleoIconProps>;
 export type IconComponent = ComponentType<IconProps>;
 type IconSet = Record<IconVariant, NucleoIconComponent>;
 

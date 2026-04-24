@@ -178,7 +178,7 @@ const sectionCopy: Record<
   playground: {
     label: "Playground",
     description: "Interactive chat playground backed by deployed agent surfaces.",
-    icon: Icon.Msg,
+    icon: Icon.Message,
   },
 };
 const primarySectionKeys = [

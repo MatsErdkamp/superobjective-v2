@@ -76,7 +76,7 @@ export const sendEmail = so.tool({
   },
 });
 
-export const TraceProbeIntake = so
+const TraceProbeIntake = so
   .signature("trace_probe_intake")
   .withInstructions(
     "Classify the incoming support request into a concrete queue, intent, and customer tone for tracing diagnostics.",
@@ -120,7 +120,7 @@ export const traceProbeIntake = so.predict<
   adapter: so.adapters.xml(),
 });
 
-export const TraceProbeRisk = so
+const TraceProbeRisk = so
   .signature("trace_probe_risk")
   .withInstructions(
     "Assess urgency, escalation pressure, and whether a human specialist should review the request.",
@@ -183,7 +183,7 @@ export const traceProbeRisk = so.predict<
   adapter: so.adapters.xml(),
 });
 
-export const TraceProbeResolution = so
+const TraceProbeResolution = so
   .signature("trace_probe_resolution")
   .withInstructions(
     "Produce an operator-facing summary, next action, and customer reply draft using the earlier diagnostic stages.",

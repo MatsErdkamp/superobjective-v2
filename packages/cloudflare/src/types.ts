@@ -1,5 +1,6 @@
 import type {
   AgentLike as HostingAgentLike,
+  ArtifactTargetKindLike as HostingArtifactTargetKindLike,
   ArtifactStoreLike as HostingArtifactStoreLike,
   BlobStoreLike as HostingBlobStoreLike,
   CallableTargetLike as HostingCallableTargetLike,
@@ -65,10 +66,12 @@ export type R2BucketLike = {
   delete(key: string): Promise<void>;
   list?(options?: {
     prefix?: string;
+    cursor?: string;
+    limit?: number;
   }):
     | Promise<string[]>
     | Promise<Array<{ key: string }>>
-    | Promise<{ objects?: Array<{ key: string }> }>;
+    | Promise<{ objects?: Array<{ key: string }>; cursor?: string; truncated?: boolean }>;
 };
 
 export type AISearchItemLike = {
@@ -141,6 +144,7 @@ export type ToolCallTraceLike = HostingToolCallTraceLike;
 export type ComponentTraceLike = HostingComponentTraceLike;
 export type RunTraceLike = HostingRunTraceLike;
 export type CompiledArtifactLike = HostingCompiledArtifactLike;
+export type ArtifactTargetKindLike = HostingArtifactTargetKindLike;
 export type CorpusStorageDescriptorLike = HostingCorpusStorageDescriptorLike;
 export type CorpusRetrievalDescriptorLike = HostingCorpusRetrievalDescriptorLike;
 export type CorpusDescriptorLike = HostingCorpusDescriptorLike;

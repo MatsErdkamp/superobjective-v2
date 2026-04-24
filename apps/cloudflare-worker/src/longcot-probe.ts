@@ -7,25 +7,9 @@ import { createWorkersAiJsonModel, createWorkersAiQueryProvider } from "./worker
 
 const LONGCOT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
-const relaxedXmlAdapter = (() => {
-  const base = so.adapters.xml();
-  return {
-    ...base,
-    async format(args: Parameters<typeof base.format>[0]) {
-      const formatted = await base.format(args);
-      return {
-        ...formatted,
-        output: {
-          ...formatted.output,
-          strict: false,
-        },
-      };
-    },
-  };
-})();
-
 const longcotStructuredModel = createWorkersAiJsonModel({
   model: LONGCOT_MODEL,
+  nativeSchema: true,
   systemPreamble: [
     "You are the structured planning model for a general-purpose LongCoT RLM run.",
     "For act steps, return JSON with string fields reasoning and code.",
@@ -78,7 +62,7 @@ export const solveLongCotQuestion = so.rlm(
     maxIterations: 6,
     maxLlmCalls: 10,
     maxOutputChars: 12_000,
-    adapter: relaxedXmlAdapter,
+    adapter: so.adapters.nativeStructured(),
     act: {
       instructions: so.text({
         value: [
@@ -87,6 +71,8 @@ export const solveLongCotQuestion = so.rlm(
           "Start by exploring the prompt and understanding the task before attempting a final answer.",
           "In the first step, inspect the available inputs and print a short summary such as the domain, question id, prompt length, and the answer surface the prompt seems to require.",
           "Use `print(...)` every step to record concrete observations. Do not stay silent unless you are submitting.",
+          "Do not print the full prompt. Print bounded slices, parsed values, counts, and exact evidence snippets only.",
+          "This is a Worker JavaScript REPL, not Node.js. Do not use `require`, `fs`, `process`, `Buffer`, or other Node-only APIs.",
           "Treat `inputs.prompt` as data. Parse or inspect the exact text instead of relying on memory of benchmark families.",
           "If the prompt is long or structured, break the work into smaller inspected subproblems and only use `llm_query` on bounded snippets or clearly-scoped semantic questions.",
           "Use `llm_query_batched` when several independent subquestions can be asked in parallel.",

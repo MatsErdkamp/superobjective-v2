@@ -13,17 +13,16 @@ import {
 import { predict } from "./predict.js";
 import { getRuntimeContext } from "./runtime.js";
 import { input, signature, signatureToInputZodSchema, signatureToOutputZodSchema, text } from "./schema.js";
-import { chooseArtifactCandidate, mergeCandidates, serializeError, stableStringify } from "./utils.js";
+import { mergeCandidates } from "./candidate.js";
+import { chooseArtifactCandidate, serializeError, stableStringify } from "./utils.js";
 import type {
   CompiledArtifact,
-  ModelMessage,
   PredictModule,
   ProgrammableStepTrace,
   RLMExecuteStepResult,
   RLMHistoryEntry,
   RLMModule,
   RLMOptions,
-  RLMPreparedContext,
   RLMSessionCheckpoint,
   RunOptions,
   RuntimeContext,
@@ -42,6 +41,9 @@ const DEFAULT_ACT_INSTRUCTIONS = text({
     "This is iterative. Do not try to solve everything in one step.",
     "Explore first: inspect the available inputs and resources before processing them deeply.",
     "Iterate with small code snippets, print concrete observations, and preserve useful variables across steps.",
+    "Do not dump full large inputs or resources into the log. Print bounded summaries, selected slices, counts, paths, and exact evidence snippets only.",
+    "The REPL is a Worker-compatible JavaScript environment, not Node.js. Do not use require, fs, process, Buffer, child_process, or other Node-only APIs.",
+    "Read data from inputs, getInput, readText, searchText, readMatchWindow, listCorpusFiles, readCorpusFile, searchCorpus, and configured tools.",
     "Use llm_query or llm_query_batched for semantic analysis after you have located a bounded subproblem.",
     "Minimize retyping. Reuse variables, parsed values, and exact strings from prior steps instead of copying them manually.",
     "Verify concrete evidence before calling SUBMIT.",
@@ -55,6 +57,8 @@ const DEFAULT_EXTRACT_INSTRUCTIONS = text({
   value: "Produce the final structured output from the prepared context summary and prior RLM trajectory.",
   optimize: true,
 });
+
+const DEFAULT_MAX_QUERY_CALLS = Number.MAX_SAFE_INTEGER;
 
 type RlmInternalOptions = RunOptions & {
   __execution?: ExecutionState;
@@ -115,25 +119,28 @@ export function rlm<TInput extends Record<string, unknown>, TOutput extends Reco
       outputSchema: state.outputSchema,
       options: state.options,
       inspectTextCandidate() {
-        return mergeCandidates(
-          extractRlmSeedCandidate(state),
-          state.act.inspectTextCandidate(),
-          state.extract.inspectTextCandidate(),
+        return filterOriginalSignatureCandidate(
+          state.signature,
+          mergeCandidates(
+            state.act.inspectTextCandidate(),
+            state.extract.inspectTextCandidate(),
+            chooseArtifactCandidate(state.artifact),
+            state.candidate,
+          ),
         );
       },
       withCandidate(candidate: TextCandidate) {
+        const childCandidate = filterOriginalSignatureCandidate(state.signature, candidate);
         return build({
           ...state,
-          act: state.act.withCandidate(candidate),
-          extract: state.extract.withCandidate(candidate),
+          act: state.act.withCandidate(childCandidate),
+          extract: state.extract.withCandidate(childCandidate),
           candidate: mergeCandidates(state.candidate, candidate),
         });
       },
       withArtifact(artifact: CompiledArtifact) {
         return build({
           ...state,
-          act: state.act.withArtifact(artifact),
-          extract: state.extract.withArtifact(artifact),
           artifact,
         });
       },
@@ -289,27 +296,27 @@ async function executeRlm<TInput, TOutput>(
           }),
     };
 
-    const inheritedCandidate = mergeCandidates(
-      chooseArtifactCandidate(state.artifact),
-      state.candidate,
-      chooseArtifactCandidate(options?.artifact),
-      options?.candidate,
+    const inheritedCandidate = filterOriginalSignatureCandidate(
+      state.signature,
+      mergeCandidates(
+        chooseArtifactCandidate(state.artifact),
+        state.candidate,
+        chooseArtifactCandidate(options?.artifact),
+        options?.candidate,
+      ),
     );
+    const { artifact: _childArtifact, candidate: _childCandidate, ...childOptionBase } = options ?? {};
     const childOptions: RlmInternalOptions = {
-      ...options,
+      ...childOptionBase,
       runtime,
       __execution: execution,
       ...(Object.keys(inheritedCandidate).length > 0 ? { candidate: inheritedCandidate } : {}),
-      ...((options?.artifact ?? state.artifact)
-        ? {
-            artifact: options?.artifact ?? state.artifact,
-          }
-        : {}),
     };
 
     const history: RLMHistoryEntry[] = resumed?.history.map((entry) => ({ ...entry })) ?? [];
     const maxIterations = state.options.maxIterations ?? 8;
     const maxLlmCalls = state.options.maxLlmCalls ?? Math.max(maxIterations + 1, 8);
+    const maxQueryCalls = state.options.maxQueryCalls ?? DEFAULT_MAX_QUERY_CALLS;
     const maxOutputChars = state.options.maxOutputChars ?? 10_000;
     let llmCallsUsed = resumed?.llmCallsUsed ?? 0;
     let queryCallsUsed = resumed?.queryCallsUsed ?? 0;
@@ -324,13 +331,14 @@ async function executeRlm<TInput, TOutput>(
       typeof (runtime as { __superobjectiveRlmCheckpoint?: unknown }).__superobjectiveRlmCheckpoint ===
         "function"
         ? ((runtime as {
-            __superobjectiveRlmCheckpoint: (value: {
+          __superobjectiveRlmCheckpoint: (value: {
               runId: string;
               moduleId: string;
               nextIteration: number;
               llmCallsUsed: number;
               queryCallsUsed: number;
               sessionKind?: string;
+              trace: RLMSessionCheckpoint["trace"];
             }) => Promise<void> | void;
           }).__superobjectiveRlmCheckpoint)
         : undefined;
@@ -343,6 +351,7 @@ async function executeRlm<TInput, TOutput>(
         nextIteration: value.nextIteration,
         llmCallsUsed: value.llmCallsUsed,
         queryCallsUsed: value.queryCallsUsed,
+        trace: cloneRlmTrace(value.trace),
         ...(sessionKind != null ? { sessionKind } : {}),
       });
     }
@@ -372,10 +381,13 @@ async function executeRlm<TInput, TOutput>(
           contextManifest: preparedContext.manifestSummary,
           variablesInfo: preparedContext.variablesInfo ?? "No explicit REPL variable metadata was provided.",
           availableTools: preparedContext.availableTools ?? "No explicit tool summary was provided.",
-          replHistory: formatHistory(history),
+          replHistory: formatHistory(history, maxOutputChars),
           iteration: `${iteration + 1}/${maxIterations}`,
           llmBudget: `${llmCallsUsed}/${maxLlmCalls} used`,
-          queryBudget: `${queryCallsUsed} queries used`,
+          queryBudget:
+            maxQueryCalls === DEFAULT_MAX_QUERY_CALLS
+              ? `${queryCallsUsed} queries used`
+              : `${queryCallsUsed}/${maxQueryCalls} queries used`,
           stepGuidance,
         },
         childOptions,
@@ -401,7 +413,7 @@ async function executeRlm<TInput, TOutput>(
           ...(state.options.queryProvider ? { queryProvider: state.options.queryProvider } : {}),
           ...(state.options.tools != null ? { tools: state.options.tools } : {}),
           maxOutputChars,
-          maxQueryCalls: Number.MAX_SAFE_INTEGER,
+          maxQueryCalls,
           queryCallsUsed,
         });
       } catch (error) {
@@ -502,7 +514,7 @@ async function executeRlm<TInput, TOutput>(
         contextManifest: preparedContext.manifestSummary,
         variablesInfo: preparedContext.variablesInfo ?? "No explicit REPL variable metadata was provided.",
         availableTools: preparedContext.availableTools ?? "No explicit tool summary was provided.",
-        replHistory: formatHistory(history),
+        replHistory: formatHistory(history, maxOutputChars),
       },
       childOptions,
     );
@@ -641,12 +653,15 @@ function buildExtractSignature(
 function composeInstructions(
   ...values: Array<TextParam | undefined>
 ): TextParam {
+  const nonEmptyValues = values.filter(
+    (value): value is TextParam => value != null && value.value.trim().length > 0,
+  );
   return text({
-    value: values
-      .map((value) => value?.value)
-      .filter((value): value is string => value != null && value.trim().length > 0)
+    value: nonEmptyValues
+      .map((value) => value.value)
       .join("\n\n"),
-    optimize: values.some((value) => value?.optimize === true),
+    optimize:
+      nonEmptyValues.length > 0 && nonEmptyValues.every((value) => value.optimize === true),
   });
 }
 
@@ -672,7 +687,7 @@ function truncateOutput(value: string, maxChars: number): string {
   ].join("\n");
 }
 
-function formatHistory(entries: RLMHistoryEntry[]): string {
+function formatHistory(entries: RLMHistoryEntry[], maxOutputChars: number): string {
   if (entries.length === 0) {
     return "No REPL history yet.";
   }
@@ -681,12 +696,12 @@ function formatHistory(entries: RLMHistoryEntry[]): string {
     .map((entry, index) =>
       [
         `=== Step ${index + 1} ===`,
-        `Reasoning: ${entry.reasoning ?? "(none)"}`,
+        `Reasoning: ${entry.reasoning == null ? "(none)" : truncateOutput(entry.reasoning, maxOutputChars)}`,
         "Code:",
         "```javascript",
-        entry.code,
+        truncateOutput(entry.code, maxOutputChars),
         "```",
-        entry.output,
+        truncateOutput(entry.output, maxOutputChars),
       ].join("\n"),
     )
     .join("\n\n");
@@ -731,7 +746,7 @@ function formatStepOutput(
 ): string {
   const parts: string[] = [];
   if (step.logs.length > 0) {
-    parts.push(`Logs:\n${step.logs.join("\n")}`);
+    parts.push(`Logs:\n${truncateOutput(step.logs.join("\n"), maxOutputChars)}`);
   }
   if (step.stdout != null && step.stdout.length > 0) {
     parts.push(`Stdout:\n${truncateOutput(step.stdout, maxOutputChars)}`);
@@ -759,12 +774,25 @@ function formatSubmitValidationGuidance(error: unknown): string {
   return `SUBMIT payload validation failed: ${normalized.message}. Submit only the final typed output with concrete values for every required field.`;
 }
 
-function extractRlmSeedCandidate<TInput, TOutput>(state: RlmState<TInput, TOutput>): TextCandidate {
-  return mergeCandidates(
-    {
-      [`${state.signature.name}.instructions`]: state.signature.instructions.value,
-    },
-    chooseArtifactCandidate(state.artifact),
-    state.candidate,
+function filterOriginalSignatureCandidate(
+  signatureValue: Signature<any, any>,
+  candidate: TextCandidate,
+): TextCandidate {
+  return Object.fromEntries(
+    Object.entries(candidate).filter(([path]) => !isOriginalSignatureCandidatePath(signatureValue, path)),
+  );
+}
+
+function isOriginalSignatureCandidatePath(
+  signatureValue: Signature<any, any>,
+  path: string,
+): boolean {
+  if (path === `${signatureValue.name}.instructions`) {
+    return true;
+  }
+
+  return (
+    path.startsWith(`${signatureValue.name}.input.`) ||
+    path.startsWith(`${signatureValue.name}.output.`)
   );
 }

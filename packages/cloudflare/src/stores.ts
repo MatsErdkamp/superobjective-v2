@@ -1,5 +1,6 @@
 import type {
   ArtifactStoreLike,
+  ArtifactTargetKindLike,
   BlobStoreLike,
   CloudflareEnvLike,
   CompiledArtifactLike,
@@ -7,6 +8,7 @@ import type {
   RunTraceLike,
   TraceStoreLike,
 } from "./types";
+import { asR2Bucket, listR2Keys } from "./r2";
 
 type TraceNamespace = {
   traces: Map<string, RunTraceLike>;
@@ -96,16 +98,6 @@ async function readBucketJson<T>(bucket: R2BucketLike, key: string): Promise<T |
   return value as T;
 }
 
-async function listBucketKeys(bucket: R2BucketLike, prefix: string): Promise<string[]> {
-  const response = bucket.list == null ? [] : await bucket.list({ prefix });
-
-  if (Array.isArray(response)) {
-    return response.map((item) => (typeof item === "string" ? item : item.key));
-  }
-
-  return (response.objects ?? []).map((item) => item.key);
-}
-
 export class MemoryTraceStore implements TraceStoreLike {
   readonly namespace: string;
   private readonly store: TraceNamespace;
@@ -176,18 +168,7 @@ export class R2BackedTraceStore implements TraceStoreLike {
   }
 
   private resolveBucket(): R2BucketLike | null {
-    const candidate = this.env?.[this.binding];
-    if (
-      candidate != null &&
-      typeof candidate === "object" &&
-      "put" in candidate &&
-      typeof candidate.put === "function" &&
-      "get" in candidate &&
-      typeof candidate.get === "function"
-    ) {
-      return candidate as R2BucketLike;
-    }
-    return null;
+    return asR2Bucket(this.env?.[this.binding]);
   }
 
   private traceKey(runId: string): string {
@@ -223,7 +204,7 @@ export class R2BackedTraceStore implements TraceStoreLike {
       return this.fallbackStore.listTraces?.(args) ?? Promise.resolve([]);
     }
 
-    const keys = await listBucketKeys(bucket, `${this.namespace}/traces/`);
+    const keys = await listR2Keys(bucket, `${this.namespace}/traces/`);
     const traces = await Promise.all(keys.map((key) => readBucketJson<RunTraceLike>(bucket, key)));
 
     const filtered = traces
@@ -264,7 +245,7 @@ export class MemoryArtifactStore implements ArtifactStoreLike {
   }
 
   async listArtifacts(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKindLike;
     targetId?: string;
     limit?: number;
   }): Promise<CompiledArtifactLike[]> {
@@ -285,7 +266,7 @@ export class MemoryArtifactStore implements ArtifactStoreLike {
   }
 
   async loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
   }): Promise<CompiledArtifactLike | null> {
     const artifactId = this.store.active.get(makeActiveKey(args.targetKind, args.targetId));
@@ -297,7 +278,7 @@ export class MemoryArtifactStore implements ArtifactStoreLike {
   }
 
   async setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
     artifactId: string;
   }): Promise<void> {
@@ -335,18 +316,7 @@ export class R2BackedArtifactStore implements ArtifactStoreLike {
   }
 
   private resolveBucket(): R2BucketLike | null {
-    const candidate = this.env?.[this.binding];
-    if (
-      candidate != null &&
-      typeof candidate === "object" &&
-      "put" in candidate &&
-      typeof candidate.put === "function" &&
-      "get" in candidate &&
-      typeof candidate.get === "function"
-    ) {
-      return candidate as R2BucketLike;
-    }
-    return null;
+    return asR2Bucket(this.env?.[this.binding]);
   }
 
   private artifactKey(artifactId: string): string {
@@ -377,7 +347,7 @@ export class R2BackedArtifactStore implements ArtifactStoreLike {
   }
 
   async listArtifacts(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKindLike;
     targetId?: string;
     limit?: number;
   }): Promise<CompiledArtifactLike[]> {
@@ -386,7 +356,7 @@ export class R2BackedArtifactStore implements ArtifactStoreLike {
       return this.fallbackStore.listArtifacts?.(args) ?? Promise.resolve([]);
     }
 
-    const keys = await listBucketKeys(bucket, `${this.namespace}/artifacts/`);
+    const keys = await listR2Keys(bucket, `${this.namespace}/artifacts/`);
     const artifacts = await Promise.all(
       keys.map((key) => readBucketJson<CompiledArtifactLike>(bucket, key)),
     );
@@ -410,7 +380,7 @@ export class R2BackedArtifactStore implements ArtifactStoreLike {
   }
 
   async loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
   }): Promise<CompiledArtifactLike | null> {
     const bucket = this.resolveBucket();
@@ -437,7 +407,7 @@ export class R2BackedArtifactStore implements ArtifactStoreLike {
   }
 
   async setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
     artifactId: string;
   }): Promise<void> {
@@ -520,22 +490,6 @@ export function createPrototypeArtifactStore(namespace?: string): ArtifactStoreL
   return createR2ArtifactStore(namespace);
 }
 
-/** @deprecated This helper currently returns a prototype R2-backed store, not SQLite-backed storage. */
-export function createSqliteTraceStore(namespace?: string): TraceStoreLike {
-  return createPrototypeTraceStore(namespace);
-}
-
-/** @deprecated This helper currently returns a prototype R2-backed store, not SQLite-backed storage. */
-export function createSqliteArtifactStore(namespace?: string): ArtifactStoreLike {
-  return createPrototypeArtifactStore(namespace);
-}
-
-/** @deprecated Prefer MemoryTraceStore. */
-export class InMemorySqliteTraceStore extends MemoryTraceStore {}
-
-/** @deprecated Prefer MemoryArtifactStore. */
-export class InMemorySqliteArtifactStore extends MemoryArtifactStore {}
-
-export function createR2BlobStore(namespace?: string): BlobStoreLike {
+export function createMemoryBlobStore(namespace?: string): BlobStoreLike {
   return new InMemoryR2BlobStore(namespace);
 }

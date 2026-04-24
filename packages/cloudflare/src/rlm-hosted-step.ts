@@ -1,4 +1,4 @@
-import type { RLMPreparedContext, RLMResource } from "superobjective";
+import type { RLMPreparedContext } from "superobjective";
 
 import type { CompiledRlmStep } from "./rlm-step";
 
@@ -19,10 +19,14 @@ type HostedFacetSnapshot = {
 };
 
 function safeClone(value: unknown): unknown {
-  if (typeof structuredClone === "function") {
-    return structuredClone(value);
+  try {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return undefined;
   }
-  return JSON.parse(JSON.stringify(value));
 }
 
 function sanitizeToolName(name: string): string {
@@ -139,7 +143,7 @@ export function buildHostedRlmStepWorkerSource(args: {
   const { state, step } = args;
   const definitionPrelude = Object.entries(state.definitionStatements ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, statement]) => `if (${name} === undefined) { ${statement} }`)
+    .map(([, statement]) => statement)
     .join("\n");
   const trackedPrelude = (step.compiled.trackedNames ?? [])
     .map((name) => `let ${name} = safeClone(SNAPSHOT.globals[${JSON.stringify(name)}]);`)

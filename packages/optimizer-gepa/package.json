@@ -2,6 +2,9 @@
   "name": "@superobjective/optimizer-gepa",
   "version": "0.1.0",
   "type": "module",
+  "scripts": {
+    "build": "tsc -b --pretty false"
+  },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -9,8 +12,5 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
-  },
-  "dependencies": {
-    "superobjective": "workspace:*"
   }
 }

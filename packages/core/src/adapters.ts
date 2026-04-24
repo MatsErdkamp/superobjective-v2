@@ -22,6 +22,31 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isBooleanSchema(schema: z.ZodTypeAny): boolean {
+  if (schema instanceof z.ZodBoolean) {
+    return true;
+  }
+
+  const unwrap = (schema as { unwrap?: () => z.ZodTypeAny }).unwrap;
+  return typeof unwrap === "function" ? isBooleanSchema(unwrap.call(schema)) : false;
+}
+
+function parseBooleanText(value: string): boolean | string {
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  return trimmed;
+}
+
 function renderFieldXml(args: {
   signature: Signature<any, any>;
   kind: "input" | "output";
@@ -225,14 +250,15 @@ function createFallbackParser(mode: "xml-tags" | "json-text", signature: Signatu
   }
 
   return async (rawText: string) => {
-    const value: Record<string, string> = {};
+    const value: Record<string, unknown> = {};
     for (const key of Object.keys(signature.output)) {
-      const pattern = new RegExp(`<${key}>([\\s\\S]*?)<\\/${key}>`, "i");
+      const escapedKey = escapeRegExp(key);
+      const pattern = new RegExp(`<${escapedKey}>([\\s\\S]*?)<\\/${escapedKey}>`, "i");
       const match = rawText.match(pattern);
       if (match?.[1]) {
         const field = (signature.output as Record<string, Field<any, any>>)[key];
-        if (field?.schema instanceof z.ZodBoolean) {
-          value[key] = String(match[1].trim().toLowerCase() === "true");
+        if (field != null && isBooleanSchema(field.schema)) {
+          value[key] = parseBooleanText(match[1]);
         } else {
           value[key] = match[1].trim();
         }

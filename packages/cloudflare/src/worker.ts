@@ -16,6 +16,7 @@ import {
   normalizeProject,
   notFound,
   nowIso,
+  parseRequestInput,
   resolveText,
   serializeError,
   stableStringify,
@@ -34,16 +35,17 @@ import { bindProjectCorporaRuntime } from "./corpora";
 import { buildRlmFacetWorkerSource } from "./rlm-facet-source";
 import { buildHostedRlmStepWorkerSource } from "./rlm-hosted-step";
 import { createAiSdkBridge, bindRuntimeEnv } from "./runtime";
+import { getPathSegments } from "./request";
 import type { CloudflareHostedRlmSessionManager } from "./rlm";
 import type {
   AgentLike,
+  ArtifactTargetKindLike,
   CallableTargetLike,
   CloudflareEnvLike,
   CloudflareWorkerLike,
   CreateCloudflareWorkerOptions,
   ExecutionContextLike,
   NormalizedProjectLike,
-  ProjectLike,
   RuntimeContextLike,
   RunTraceLike,
   ToolLike,
@@ -113,7 +115,7 @@ const getAgentByName =
   agentsModule != null &&
   "getAgentByName" in agentsModule &&
   typeof agentsModule.getAgentByName === "function"
-    ? (agentsModule.getAgentByName as AgentNamespaceResolverLike)
+    ? (agentsModule.getAgentByName as unknown as AgentNamespaceResolverLike)
     : null;
 
 type RegisteredWorker = {
@@ -332,6 +334,7 @@ async function dispatchKernelRequest(
     ): Promise<T>;
   },
   rlmSessionManager?: CloudflareHostedRlmSessionManager,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
   const registration = requireActiveRegistration();
   const runtime = createBoundRuntime(env, registration);
@@ -355,6 +358,7 @@ async function dispatchKernelRequest(
     warnings: registration.warnings,
     ...(env ? { env } : {}),
     ...(fiberRunner != null ? { fiberRunner } : {}),
+    ...(waitUntil != null ? { waitUntil } : {}),
   });
 }
 
@@ -725,7 +729,7 @@ function maybeDispatchToDurableHost(
   env: CloudflareEnvLike | undefined,
 ): Promise<Response> | null {
   const url = new URL(request.url);
-  const segments = url.pathname.split("/").filter(Boolean);
+  const segments = getPathSegments(url);
   if (segments.length < 2) {
     if (segments.length === 1 && segments[0] === "kernel") {
       const namespace = resolveDurableHostNamespace(env, "SO_KERNEL");
@@ -825,49 +829,6 @@ async function forwardKernelJsonRequest(
   return dispatchKernelRequest(forwarded, env, requireLocalKernelPersistence());
 }
 
-async function parseInlineRequestInput(request: Request): Promise<unknown> {
-  if (request.method === "GET" || request.method === "HEAD") {
-    const inputParam = new URL(request.url).searchParams.get("input");
-    if (inputParam == null) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(inputParam);
-    } catch {
-      return inputParam;
-    }
-  }
-
-  const contentType = request.headers.get("content-type") ?? "";
-  const clone = request.clone();
-  if (contentType.includes("application/json")) {
-    return clone.json().catch(() => undefined);
-  }
-
-  const text = await clone.text();
-  if (text.length === 0) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-async function dispatchHostRequest(
-  request: Request,
-  env: CloudflareEnvLike | undefined,
-  hostPrefix: "agents" | "rpc" | "mcp",
-): Promise<Response> {
-  return dispatchRequest({
-    request,
-    env,
-    registration: requireActiveRegistration(),
-    hostPrefix,
-  });
-}
-
 async function dispatchRpcViaKernelRequest(
   request: Request,
   env: CloudflareEnvLike | undefined,
@@ -875,7 +836,7 @@ async function dispatchRpcViaKernelRequest(
   const registration = requireActiveRegistration();
   const warnings = registration.warnings;
   const runtime = createBoundRuntime(env, registration);
-  const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+  const segments = getPathSegments(request);
   if (segments[0] !== "rpc" || segments[1] == null || segments[2] == null) {
     return badRequest('RPC requests must use "/rpc/:rpcName/:handlerName".', warnings);
   }
@@ -893,7 +854,7 @@ async function dispatchRpcViaKernelRequest(
     );
   }
 
-  const input = await parseInlineRequestInput(request);
+  const input = await parseRequestInput(request.clone() as Request).catch(() => undefined);
   const routeTrace = createRouteTrace(`${segments[1]}.${segments[2]}`, "rpc", input, {
     route: "rpc",
     rpcName: segments[1],
@@ -946,7 +907,7 @@ async function dispatchMcpViaKernelRequest(
 ): Promise<Response> {
   const registration = requireActiveRegistration();
   const warnings = registration.warnings;
-  const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+  const segments = getPathSegments(request);
   if (segments[0] !== "mcp" || segments[1] == null) {
     return badRequest('MCP requests must use "/mcp/:mcpName".', warnings);
   }
@@ -1400,7 +1361,7 @@ class SqliteKernelPersistence implements KernelPersistence {
   }
 
   async listArtifacts(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKindLike;
     targetId?: string;
     limit?: number;
   }): Promise<
@@ -1429,7 +1390,7 @@ class SqliteKernelPersistence implements KernelPersistence {
   }
 
   async loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
   }): Promise<
     Awaited<
@@ -1447,7 +1408,7 @@ class SqliteKernelPersistence implements KernelPersistence {
   }
 
   async setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
     artifactId: string;
   }): Promise<void> {
@@ -1862,6 +1823,12 @@ export class ModuleKernel extends AgentBase {
           }
         : undefined,
       this.hostedRlmSessionManager,
+      typeof (this as unknown as { ctx?: { waitUntil?: (promise: Promise<unknown>) => void } }).ctx?.waitUntil ===
+        "function"
+        ? (this as unknown as { ctx: { waitUntil: (promise: Promise<unknown>) => void } }).ctx.waitUntil.bind(
+            (this as unknown as { ctx: { waitUntil: (promise: Promise<unknown>) => void } }).ctx,
+          )
+        : undefined,
     );
   }
 
@@ -1971,7 +1938,7 @@ export class HostedAgentRouteHost extends ThinkBase {
       );
     }
 
-    const payload = await this.parseRequestInput(request);
+    const payload = await parseRequestInput(request);
     if (payload == null) {
       return badRequest(
         "Agent requests require a JSON body or ?input= query parameter.",
@@ -2016,8 +1983,8 @@ export class HostedAgentRouteHost extends ThinkBase {
     }
 
     const provider = createWorkersAI({
-      binding: binding as Parameters<typeof createWorkersAI>[0]["binding"],
-    });
+      binding,
+    } as Parameters<typeof createWorkersAI>[0]);
 
     const settings: Record<string, unknown> = {
       sessionAffinity: this.getThinkHost().sessionAffinity ?? this.getInstanceName(),
@@ -2177,7 +2144,7 @@ export class HostedAgentRouteHost extends ThinkBase {
   }
 
   private parseAgentRoute(request: Request): { agentName: string; sessionId: string } | null {
-    const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+    const segments = getPathSegments(request);
     if (segments[0] !== "agents" || segments[1] == null || segments[2] == null) {
       return null;
     }
@@ -2185,35 +2152,6 @@ export class HostedAgentRouteHost extends ThinkBase {
       agentName: segments[1],
       sessionId: segments[2],
     };
-  }
-
-  private async parseRequestInput(request: Request): Promise<unknown> {
-    if (request.method === "GET" || request.method === "HEAD") {
-      const inputParam = new URL(request.url).searchParams.get("input");
-      if (inputParam == null) {
-        return undefined;
-      }
-      try {
-        return JSON.parse(inputParam);
-      } catch {
-        return inputParam;
-      }
-    }
-
-    const contentType = request.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      return request.json();
-    }
-
-    const text = await request.text();
-    if (text.length === 0) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
   }
 
   private describeAgentTools(agent: AgentLike) {
@@ -2741,30 +2679,4 @@ export class HostedMcpRouteHost extends McpAgentBase {
   async onRequest(request: Request): Promise<Response> {
     return dispatchMcpViaKernelRequest(request, this.hostedEnv);
   }
-}
-
-/** @deprecated Prefer RpcHost. */
-export class AgentHost extends RpcHost {}
-
-/** @deprecated Prefer HostedAgentRouteHost. */
-export class ThinkHost extends HostedAgentRouteHost {}
-
-/** @deprecated Prefer HostedMcpRouteHost. */
-export class McpHost extends HostedMcpRouteHost {}
-
-export function __getActiveWorkerRegistration(): {
-  project: ProjectLike;
-  warnings: string[];
-} | null {
-  if (activeWorkerRegistration == null) {
-    return null;
-  }
-  return {
-    project: activeWorkerRegistration.options.project,
-    warnings: activeWorkerRegistration.warnings.slice(),
-  };
-}
-
-export function __stableStringify(value: unknown): string {
-  return stableStringify(value);
 }

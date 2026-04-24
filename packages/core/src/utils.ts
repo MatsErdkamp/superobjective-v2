@@ -71,12 +71,6 @@ export function appendLine(original: string | undefined, line: string): string {
   return `${original}\n${line}`;
 }
 
-export function mergeCandidates(
-  ...candidates: Array<TextCandidate | undefined | null>
-): TextCandidate {
-  return Object.assign({}, ...candidates.filter(Boolean));
-}
-
 export function shallowClone<T>(value: T): T {
   if (Array.isArray(value)) {
     return [...value] as T;

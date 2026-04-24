@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vp run -r build",
+    "build": "pnpm -r --filter './packages/*' build && pnpm --filter dashboard build",
     "benchmark:longcot": "uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py --difficulty longcot",
     "benchmark:longcot:mini": "uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py --difficulty longcot-mini",
     "benchmark:longcot:smoke": "uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py --difficulty longcot-mini --domain logic --max-questions 1",
@@ -11,25 +11,29 @@
     "dev:dashboard": "wrangler dev -c apps/dashboard/wrangler.jsonc",
     "deploy:cloudflare": "wrangler deploy",
     "dev:cloudflare": "wrangler dev",
+    "knip": "knip",
     "test": "vp test run",
     "test:cloudflare-live": "vp test run tests/cloudflare.live.test.ts",
     "test:watch": "vp test",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false && tsc -p tests/tsconfig.json --pretty false && tsc -p apps/cloudflare-worker/tsconfig.json --pretty false --noEmit && tsc -p apps/dashboard/tsconfig.json --pretty false --noEmit",
+    "typecheck:packages": "tsc -b --pretty false",
+    "typecheck:tests": "tsc -p tests/tsconfig.json --pretty false",
+    "typecheck:cloudflare-worker": "tsc -p apps/cloudflare-worker/tsconfig.json --pretty false --noEmit",
+    "typecheck:dashboard": "tsc -p apps/dashboard/tsconfig.json --pretty false --noEmit",
     "types:dashboard": "wrangler types -c apps/dashboard/wrangler.jsonc apps/dashboard/src/env.d.ts",
     "types:cloudflare": "wrangler types apps/cloudflare-worker/src/env.d.ts"
   },
   "dependencies": {
     "@superobjective/cloudflare": "workspace:*",
     "@superobjective/optimizer-gepa": "workspace:*",
-    "chess.js": "^1.4.0",
     "superobjective": "workspace:*"
   },
   "devDependencies": {
+    "acorn": "^8.15.0",
     "@types/node": "^24.5.2",
-    "tsx": "^4.20.5",
+    "knip": "^6.6.2",
     "typescript": "^5.9.2",
     "vite-plus": "catalog:",
-    "vitest": "catalog:",
     "wrangler": "^4.83.0",
     "zod": "^4.1.11"
   },

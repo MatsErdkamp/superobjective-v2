@@ -2,7 +2,9 @@ import { z } from "zod";
 
 import type {
   ExecutionPlanTrace,
+  ArgSource,
   InputSource,
+  LiteralSource,
   ModelMessage,
   PreparedSource,
   TextParam,
@@ -345,10 +347,10 @@ export async function resolveBoundInput<TInput extends Record<string, unknown>>(
 
 export const from = {
   arg<T = unknown>(path: string) {
-    return { kind: "arg", path } as const;
+    return { kind: "arg", path } as ArgSource<T>;
   },
   literal<T>(value: T) {
-    return { kind: "literal", value } as const;
+    return { kind: "literal", value } as LiteralSource<T>;
   },
   chat: {
     currentUserMessage() {
@@ -358,10 +360,10 @@ export const from = {
       return { kind: "chat.history" } as const;
     },
     historyAsText(options?: Record<string, unknown>) {
-      return { kind: "chat.historyAsText", options } as const;
+      return { kind: "chat.historyAsText", ...(options !== undefined ? { options } : {}) } as const;
     },
     historyAsContext(options?: Record<string, unknown>) {
-      return { kind: "chat.historyAsContext", options } as const;
+      return { kind: "chat.historyAsContext", ...(options !== undefined ? { options } : {}) } as const;
     },
     messagesSinceLastToolCall(
       toolNameOrOptions?: string | Record<string, unknown>,
@@ -374,7 +376,10 @@ export const from = {
               toolName: toolNameOrOptions,
             }
           : toolNameOrOptions;
-      return { kind: "chat.messagesSinceLastToolCall", options } as const;
+      return {
+        kind: "chat.messagesSinceLastToolCall",
+        ...(options !== undefined ? { options } : {}),
+      } as const;
     },
     latestAssistantMessage() {
       return { kind: "chat.latestAssistantMessage" } as const;

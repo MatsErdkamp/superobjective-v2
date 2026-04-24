@@ -1,5 +1,6 @@
 import {
   buildToolDefinition,
+  createId,
   createRouteTrace,
   getInputSchema,
   getOutputSchema,
@@ -10,6 +11,7 @@ import {
   notFound,
   badRequest,
   nowIso,
+  parseRequestInput,
   serializeError,
   stableStringify,
   validateWithSchema,
@@ -25,8 +27,10 @@ import type { ModelMessage, ToolBindingState } from "superobjective";
 import type { CloudflareEnvLike } from "./types";
 import { createCorpusProvider, mergeCorpusProviders } from "./corpora";
 import type { CorpusDescriptorLike, CorpusProviderLike } from "./types";
+import { getPathSegments } from "./request";
 
 type KernelTarget = CallableTargetLike<unknown, unknown, CloudflareEnvLike> | ToolLike<unknown, unknown, CloudflareEnvLike>;
+type ArtifactTargetKindLike = "predict" | "program" | "agent" | "rlm";
 
 export type KernelStoredToolResult = {
   id: string;
@@ -113,7 +117,7 @@ export type KernelPersistence = {
     Awaited<ReturnType<NonNullable<RuntimeContextLike<CloudflareEnvLike>["artifactStore"]>["loadArtifact"]>>
   >;
   listArtifacts(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKindLike;
     targetId?: string;
     limit?: number;
   }): Promise<
@@ -122,7 +126,7 @@ export type KernelPersistence = {
     >
   >;
   loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
   }): Promise<
     Awaited<
@@ -130,7 +134,7 @@ export type KernelPersistence = {
     >
   >;
   setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
     artifactId: string;
   }): Promise<void>;
@@ -187,12 +191,6 @@ function cloneValue<T>(value: T): T {
     return structuredClone(value);
   }
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function createId(prefix: string): string {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? `${prefix}_${crypto.randomUUID()}`
-    : `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function getPathValue(value: unknown, path: string | undefined): unknown {
@@ -541,6 +539,7 @@ async function persistRlmTrace(args: {
   trace: RunTraceLike;
   moduleId: string;
   sessionId?: string;
+  status?: "running" | "completed" | "failed";
 }): Promise<void> {
   if (args.persistence.saveRlmRun == null) {
     return;
@@ -578,7 +577,7 @@ async function persistRlmTrace(args: {
     runId: args.trace.runId,
     moduleId: args.moduleId,
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-    status: args.trace.error == null ? "completed" : "failed",
+    status: args.status ?? (args.trace.error == null ? "completed" : "failed"),
     input: args.trace.input,
     ...(args.trace.output !== undefined ? { output: args.trace.output } : {}),
     ...(args.trace.error != null ? { error: args.trace.error } : {}),
@@ -796,7 +795,7 @@ export class MemoryKernelPersistence implements KernelPersistence {
   }
 
   async listArtifacts(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKindLike;
     targetId?: string;
     limit?: number;
   }): Promise<
@@ -820,7 +819,7 @@ export class MemoryKernelPersistence implements KernelPersistence {
   }
 
   async loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
   }): Promise<
     Awaited<
@@ -838,7 +837,7 @@ export class MemoryKernelPersistence implements KernelPersistence {
   }
 
   async setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
     artifactId: string;
   }): Promise<void> {
@@ -1149,35 +1148,6 @@ export async function executeKernelTarget(args: {
   }
 }
 
-async function parseRequestInput(request: Request): Promise<unknown> {
-  if (request.method === "GET" || request.method === "HEAD") {
-    const input = new URL(request.url).searchParams.get("input");
-    if (input == null) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(input);
-    } catch {
-      return input;
-    }
-  }
-
-  const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    return request.json();
-  }
-
-  const text = await request.text();
-  if (text.length === 0) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
 type KernelFiberRunner = {
   runFiber<T>(
     name: string,
@@ -1193,9 +1163,10 @@ export async function handleKernelRequest(args: {
   persistence: KernelPersistence;
   warnings: string[];
   fiberRunner?: KernelFiberRunner;
+  waitUntil?: (promise: Promise<unknown>) => void;
 }): Promise<Response> {
   const url = new URL(args.request.url);
-  const segments = url.pathname.split("/").filter(Boolean);
+  const segments = getPathSegments(url);
   if (segments[0] !== "kernel") {
     return notFound(`No route matched "${url.pathname}".`, args.warnings);
   }
@@ -1353,14 +1324,15 @@ export async function handleKernelRequest(args: {
   }
 
   if (segments[1] === "rlm" && segments[2] != null && args.request.method === "POST") {
+    const moduleId = segments[2];
     const payload = await parseRequestInput(args.request);
-    const target = findProjectTarget(args.project, segments[2]);
+    const target = findProjectTarget(args.project, moduleId);
     if (target == null) {
-      return notFound(`RLM module "${segments[2]}" was not found.`, args.warnings);
+      return notFound(`RLM module "${moduleId}" was not found.`, args.warnings);
     }
 
     if (getTargetKind(asHostingTarget(target)) !== "rlm") {
-      return badRequest(`Target "${segments[2]}" is not an RLM module.`, args.warnings);
+      return badRequest(`Target "${moduleId}" is not an RLM module.`, args.warnings);
     }
 
     const input = isRecord(payload) && "input" in payload ? payload.input : payload;
@@ -1372,6 +1344,11 @@ export async function handleKernelRequest(args: {
       isRecord(payload) &&
       isRecord(payload.execution) &&
       payload.execution.durable === true;
+    const background =
+      durable &&
+      isRecord(payload) &&
+      isRecord(payload.execution) &&
+      (payload.execution.background === true || payload.execution.async === true);
     const hostedSessionManager =
       isRecord(args.runtime) &&
       isRecord((args.runtime as { __superobjectiveCloudflareInternal?: unknown }).__superobjectiveCloudflareInternal) &&
@@ -1390,6 +1367,7 @@ export async function handleKernelRequest(args: {
       llmCallsUsed: number;
       queryCallsUsed: number;
       sessionKind?: string;
+      trace: RunTraceLike;
     }) => void | Promise<void>) =>
       ({
         ...runtime,
@@ -1403,33 +1381,161 @@ export async function handleKernelRequest(args: {
           : {}),
       }) as RuntimeContextLike<CloudflareEnvLike>;
 
+    const persistCheckpoint = async (checkpoint: {
+      runId: string;
+      moduleId: string;
+      nextIteration: number;
+      llmCallsUsed: number;
+      queryCallsUsed: number;
+      sessionKind?: string;
+      trace: RunTraceLike;
+    }) => {
+      await args.persistence.saveTrace(checkpoint.trace);
+      await persistRlmTrace({
+        persistence: args.persistence,
+        trace: checkpoint.trace,
+        moduleId,
+        ...(sessionId ? { sessionId } : {}),
+        status: "running",
+      });
+    };
+
     const executeRlm = async (runtimeOverride?: RuntimeContextLike<CloudflareEnvLike>) =>
       executeKernelTarget({
         target,
         input,
-        runtime: runtimeOverride ?? createRlmRuntime(),
+        runtime: runtimeOverride ?? createRlmRuntime(persistCheckpoint),
         ...(args.env ? { env: args.env } : {}),
         request: args.request,
         ...(sessionId ? { sessionId } : {}),
         persistence: args.persistence,
         metadata: {
           route: "kernel.rlm",
-          moduleId: segments[2],
+          moduleId,
           ...(durable ? { durable: true } : {}),
+          ...(background ? { background: true } : {}),
         },
       });
 
     try {
+      if (background) {
+        if (args.fiberRunner == null) {
+          return badRequest(
+            "Background RLM execution requires a durable fiber-capable ModuleKernel.",
+            args.warnings,
+          );
+        }
+
+        const startedAt = nowIso();
+        const initialTrace: RunTraceLike = {
+          runId,
+          targetId: moduleId,
+          targetKind: "rlm",
+          input: validateWithSchema(getInputSchema(asHostingTarget(target)), input),
+          startedAt,
+          stdout: "",
+          components: [],
+          modelCalls: [],
+          toolCalls: [],
+          metadata: {
+            route: "kernel.rlm",
+            moduleId,
+            durable: true,
+            background: true,
+          },
+        };
+        (initialTrace as RunTraceLike & {
+          programmable: {
+            mode: "rlm";
+            context: { prepared: boolean };
+            steps: unknown[];
+          };
+        }).programmable = {
+          mode: "rlm",
+          context: {
+            prepared: false,
+          },
+          steps: [],
+        };
+        await args.persistence.saveTrace(initialTrace);
+        await args.persistence.saveRlmRun?.({
+          runId,
+          moduleId,
+          ...(sessionId ? { sessionId } : {}),
+          status: "running",
+          input: initialTrace.input,
+          traceId: runId,
+          startedAt,
+          updatedAt: startedAt,
+        });
+
+        const promise = args.fiberRunner.runFiber(
+          `rlm:${moduleId}:${runId}`,
+          async (fiber) => {
+            const stashSnapshot = (extra?: Record<string, unknown>) =>
+              fiber.stash({
+                route: "kernel.rlm",
+                runId,
+                moduleId,
+                sessionId,
+                payload,
+                background: true,
+                ...(extra ?? {}),
+              });
+
+            stashSnapshot();
+            const runtimeOverride = createRlmRuntime(async (checkpoint) => {
+              stashSnapshot({
+                checkpointVersion: checkpoint.nextIteration,
+                llmCallsUsed: checkpoint.llmCallsUsed,
+                queryCallsUsed: checkpoint.queryCallsUsed,
+                ...(checkpoint.sessionKind != null
+                  ? { sessionKind: checkpoint.sessionKind }
+                  : {}),
+              });
+              await persistCheckpoint(checkpoint);
+            });
+            return executeRlm(runtimeOverride);
+          },
+        );
+
+        const backgroundPromise = promise
+          .catch(() => undefined)
+          .finally(() => {
+            void hostedSessionManager?.deleteSession?.(runId);
+          });
+        if (args.waitUntil != null) {
+          args.waitUntil(backgroundPromise);
+        } else {
+          void backgroundPromise;
+        }
+
+        return jsonResponse(
+          202,
+          {
+            ok: true,
+            status: "running",
+            runId,
+            traceId: runId,
+            target: {
+              kind: "rlm",
+              id: getTargetId(asHostingTarget(target)),
+            },
+          },
+          args.warnings,
+        );
+      }
+
       const result =
         durable && args.fiberRunner != null
           ? await args.fiberRunner.runFiber(
-              `rlm:${segments[2]}:${sessionId ?? "default"}`,
+              `rlm:${moduleId}:${sessionId ?? "default"}`,
               async (fiber) => {
                 const stashSnapshot = (extra?: Record<string, unknown>) =>
                   fiber.stash({
                     route: "kernel.rlm",
                     runId,
-                    moduleId: segments[2],
+                    moduleId,
                     sessionId,
                     payload,
                     ...(extra ?? {}),
@@ -1445,6 +1551,7 @@ export async function handleKernelRequest(args: {
                       ? { sessionKind: checkpoint.sessionKind }
                       : {}),
                   });
+                  await persistCheckpoint(checkpoint);
                 });
                 return executeRlm(runtimeOverride);
               },
@@ -1475,7 +1582,9 @@ export async function handleKernelRequest(args: {
         args.warnings,
       );
     } finally {
-      await hostedSessionManager?.deleteSession?.(runId);
+      if (!background) {
+        await hostedSessionManager?.deleteSession?.(runId);
+      }
     }
   }
 
@@ -1919,7 +2028,7 @@ export async function handleKernelRequest(args: {
     const limit =
       limitParam != null && Number.isFinite(Number(limitParam)) ? Number.parseInt(limitParam, 10) : undefined;
     const artifacts = await artifactStore.listArtifacts?.({
-      ...(targetKind != null ? { targetKind: targetKind as "predict" | "program" | "agent" } : {}),
+      ...(targetKind != null ? { targetKind: targetKind as ArtifactTargetKindLike } : {}),
       ...(targetId != null ? { targetId } : {}),
       ...(limit != null ? { limit } : {}),
     });
@@ -1967,7 +2076,7 @@ export async function handleKernelRequest(args: {
       return badRequest('Artifact activation requires a JSON body with "artifactId".', args.warnings);
     }
     await artifactStore.setActiveArtifact({
-      targetKind: segments[2] as "predict" | "program" | "agent",
+      targetKind: segments[2] as ArtifactTargetKindLike,
       targetId: segments[3],
       artifactId,
     });
@@ -1991,7 +2100,7 @@ export async function handleKernelRequest(args: {
     args.request.method === "GET"
   ) {
     const artifact = await artifactStore.loadActiveArtifact({
-      targetKind: segments[3] as "predict" | "program" | "agent",
+      targetKind: segments[3] as ArtifactTargetKindLike,
       targetId: segments[4],
     });
     if (artifact == null) {

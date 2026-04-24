@@ -22,9 +22,10 @@ import {
   createExecutionPlan,
   resolveBoundInput,
 } from "./bindings.js";
+import { mergeCandidates } from "./candidate.js";
 import { text } from "./schema.js";
 import { signatureToInputZodSchema, signatureToOutputZodSchema } from "./schema.js";
-import { chooseArtifactCandidate, mergeCandidates } from "./utils.js";
+import { chooseArtifactCandidate } from "./utils.js";
 
 type ToolDefinition<TInput, TOutput> = {
   name: string;
@@ -87,7 +88,7 @@ function buildCustomTool<TInput, TOutput>(value: ToolDefinition<TInput, TOutput>
     },
     inspectTextCandidate() {
       return mergeCandidates(
-        { [`tool.${value.name}.description`]: value.description.value },
+        optimizedTextCandidate(`tool.${value.name}.description`, value.description),
         chooseArtifactCandidate(attached.artifact),
         attached.candidate,
       );
@@ -158,9 +159,7 @@ function buildModuleTool<TInput extends Record<string, unknown>, TOutput>(
       inspectTextCandidate() {
         return mergeCandidates(
           state.module.inspectTextCandidate(),
-          {
-            [`tool.${name}.description`]: description.value,
-          },
+          optimizedTextCandidate(`tool.${name}.description`, description),
           chooseArtifactCandidate(state.artifact),
           state.candidate,
         );
@@ -212,7 +211,7 @@ export function agent(value: {
     ...(value.metadata ? { metadata: value.metadata } : {}),
     inspectTextCandidate() {
       return mergeCandidates(
-        { [`agent.${value.name}.system`]: value.system.value },
+        optimizedTextCandidate(`agent.${value.name}.system`, value.system),
         value.chat.inspectTextCandidate(),
         ...(value.tools ?? []).map((entry) => inspectToolLikeCandidate(entry)),
         chooseArtifactCandidate(attached.artifact),
@@ -433,6 +432,10 @@ function inspectToolLikeCandidate(
   value: PredictModule<any, any> | Program<any, any> | Tool<any, any> | RLMModule<any, any>,
 ): TextCandidate {
   return value.inspectTextCandidate();
+}
+
+function optimizedTextCandidate(path: string, value: TextParam): TextCandidate {
+  return value.optimize ? { [path]: value.value } : {};
 }
 
 function assertUniqueNames(values: string[], label: string): void {

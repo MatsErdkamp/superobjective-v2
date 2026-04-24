@@ -11,8 +11,10 @@ import type {
   SuperobjectiveStorageSearchHit,
   SuperobjectiveStorageSpaceConfig,
 } from "superobjective";
+import { createId, stableStringify } from "@superobjective/hosting";
 
 import type { AISearchNamespaceLike, CloudflareEnvLike, R2BucketLike } from "./types";
+import { asR2Bucket, listR2Keys } from "./r2";
 
 const APP_PREFIX = "__superobjective/apps";
 const memoryBuckets = new Map<string, Map<string, string>>();
@@ -118,14 +120,6 @@ type AppStateBackend = {
     limit?: number;
   }): Promise<SuperobjectiveStateTraceRecord[]>;
 };
-
-function createId(prefix: string): string {
-  const value =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  return `${prefix}_${value}`;
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -348,26 +342,6 @@ function buildSnippet(text: string, query: string): string | undefined {
   return text.slice(start, end).trim();
 }
 
-function stableStringify(value: unknown): string {
-  return JSON.stringify(sortValue(value));
-}
-
-function sortValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortValue);
-  }
-
-  if (value != null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, sortValue(nested)]),
-    );
-  }
-
-  return value;
-}
-
 class MemoryBucket implements R2BucketLike {
   private readonly store: Map<string, string>;
 
@@ -435,16 +409,9 @@ class MemoryBucket implements R2BucketLike {
 
 function resolveBucket(env: CloudflareEnvLike, options?: CloudflareHostOptions): R2BucketLike {
   const binding = options?.bucketBinding ?? "SO_ARTIFACTS";
-  const candidate = env[binding];
-  if (
-    candidate != null &&
-    typeof candidate === "object" &&
-    "put" in candidate &&
-    typeof candidate.put === "function" &&
-    "get" in candidate &&
-    typeof candidate.get === "function"
-  ) {
-    return candidate as R2BucketLike;
+  const bucket = asR2Bucket(env[binding]);
+  if (bucket != null) {
+    return bucket;
   }
   return new MemoryBucket(binding);
 }
@@ -494,11 +461,7 @@ async function writeJson(bucket: R2BucketLike, key: string, value: unknown): Pro
 }
 
 async function listKeys(bucket: R2BucketLike, prefix: string): Promise<string[]> {
-  const response = bucket.list == null ? [] : await bucket.list({ prefix });
-  if (Array.isArray(response)) {
-    return response.map((item) => (typeof item === "string" ? item : item.key));
-  }
-  return (response.objects ?? []).map((item) => item.key);
+  return listR2Keys(bucket, prefix);
 }
 
 function manifestKey(appId: string): string {

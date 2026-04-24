@@ -4,6 +4,7 @@ import type {
   SuperobjectiveStateTraceRecord,
   SuperobjectiveStorageSpaceConfig,
 } from "superobjective";
+import { createId, stableStringify } from "@superobjective/hosting";
 
 type AppManifest = {
   id: string;
@@ -59,14 +60,6 @@ const AgentBase = (agentsModule?.Agent ??
     }
   }) as AgentBaseLike;
 
-function createId(prefix: string): string {
-  const value =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  return `${prefix}_${value}`;
-}
-
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -78,26 +71,6 @@ function sanitizeName(value: string): string {
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
-}
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(sortValue(value));
-}
-
-function sortValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortValue);
-  }
-
-  if (value != null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, sortValue(nested)]),
-    );
-  }
-
-  return value;
 }
 
 function normalizeSearchConfig(

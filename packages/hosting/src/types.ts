@@ -13,7 +13,7 @@ export type TextParamLike =
 
 export type ModelMessageLike = {
   role: "system" | "user" | "assistant" | "tool";
-  content: unknown;
+  content: string;
   name?: string;
   toolCallId?: string;
 };
@@ -25,7 +25,7 @@ export type TokenUsageLike = {
 };
 
 export type SerializedErrorLike = {
-  name: string;
+  name?: string;
   message: string;
   stack?: string;
   cause?: unknown;
@@ -35,10 +35,10 @@ export type ModelCallTraceLike = {
   provider: string;
   model: string;
   messages: ModelMessageLike[];
-  outputJsonSchema?: JsonSchema | undefined;
+  outputJsonSchema?: JsonSchema;
   rawResponse?: unknown;
   latencyMs?: number;
-  tokenUsage?: TokenUsageLike | undefined;
+  tokenUsage?: TokenUsageLike;
   finishReason?: string;
 };
 
@@ -70,11 +70,11 @@ export type ComponentTraceLike = {
     adapterId: string;
     adapterVersion: string;
     messages: ModelMessageLike[];
-    outputJsonSchema?: JsonSchema | undefined;
+    outputJsonSchema?: JsonSchema;
   };
   stdout: string;
   stderr?: string;
-  metadata?: Record<string, unknown> | undefined;
+  metadata?: Record<string, unknown>;
 };
 
 export type RunTraceLike = {
@@ -91,13 +91,13 @@ export type RunTraceLike = {
   components: ComponentTraceLike[];
   modelCalls: ModelCallTraceLike[];
   toolCalls: ToolCallTraceLike[];
-  metadata?: Record<string, unknown> | undefined;
+  metadata?: Record<string, unknown>;
 };
 
 export type CompiledArtifactLike = {
   id: string;
   target: {
-    kind: "predict" | "program" | "agent";
+    kind: ArtifactTargetKindLike;
     id: string;
   };
   optimizer: {
@@ -106,7 +106,7 @@ export type CompiledArtifactLike = {
     configHash: string;
   };
   textCandidate: Record<string, string>;
-  adapter: {
+  adapter?: {
     id: string;
     version: string;
   };
@@ -129,6 +129,8 @@ export type CompiledArtifactLike = {
   metadata?: Record<string, unknown>;
 };
 
+export type ArtifactTargetKindLike = "predict" | "program" | "agent" | "rlm";
+
 export type TraceStoreLike = {
   saveTrace(trace: RunTraceLike): Promise<void>;
   loadTrace(runId: string): Promise<RunTraceLike | null>;
@@ -143,16 +145,16 @@ export type ArtifactStoreLike = {
   saveArtifact(artifact: CompiledArtifactLike): Promise<void>;
   loadArtifact(id: string): Promise<CompiledArtifactLike | null>;
   listArtifacts?(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKindLike;
     targetId?: string;
     limit?: number;
   }): Promise<CompiledArtifactLike[]>;
   loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
   }): Promise<CompiledArtifactLike | null>;
   setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKindLike;
     targetId: string;
     artifactId: string;
   }): Promise<void>;
@@ -272,21 +274,27 @@ export type CorpusProviderLike<TEnv = unknown> = {
 
 export type ToolDefinitionLike = {
   name: string;
-  description?: string | undefined;
-  inputSchema?: z.ZodTypeAny | undefined;
-  execute?: (input: unknown) => Promise<unknown>;
+  description?: string;
+  inputSchema?: z.ZodTypeAny;
+  execute?: (input: unknown) => Promise<unknown> | unknown;
 };
 
-export type ModelLike<TEnv = unknown> = ModelHandleLike<TEnv> | string;
+export type ModelProviderLike = {
+  id: string;
+  complete?: (...args: any[]) => Promise<unknown>;
+  structured?: (...args: any[]) => Promise<unknown>;
+};
+
+export type ModelLike<TEnv = unknown> = ModelHandleLike<TEnv> | ModelProviderLike | string;
 
 export type StructuredGenerationRequest<T> = {
   messages: ModelMessageLike[];
   schema: z.ZodType<T>;
-  schemaName?: string | undefined;
-  schemaDescription?: string | undefined;
+  schemaName?: string;
+  schemaDescription?: string;
   strict?: boolean;
   tools?: ToolDefinitionLike[];
-  abortSignal?: AbortSignal | undefined;
+  abortSignal?: AbortSignal;
 };
 
 export type StructuredGenerationArgs<T, TEnv = unknown> = StructuredGenerationRequest<T> & {
@@ -294,7 +302,7 @@ export type StructuredGenerationArgs<T, TEnv = unknown> = StructuredGenerationRe
 };
 
 export type ModelStructuredGenerationArgs<T, TEnv = unknown> = StructuredGenerationRequest<T> & {
-  env?: TEnv | undefined;
+  env?: TEnv;
 };
 
 export type StructuredGenerationResult<T> = {
@@ -402,7 +410,9 @@ export type ToolLike<TInput = unknown, TOutput = unknown, TEnv = unknown> = {
   description?: TextParamLike;
   inputSchema?: z.ZodType<TInput>;
   outputSchema?: z.ZodType<TOutput>;
-  execute(input: TInput, ctx: ToolExecutionContextLike<TEnv>): Promise<TOutput> | TOutput;
+  execute: {
+    bivarianceHack(input: TInput, ctx: ToolExecutionContextLike<TEnv>): Promise<TOutput> | TOutput;
+  }["bivarianceHack"];
 };
 
 export type AgentLike<TEnv = unknown> = {

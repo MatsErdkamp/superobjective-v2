@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
-import { Parser } from "../packages/cloudflare/node_modules/acorn";
+import { Parser } from "acorn";
 
 import {
   cloudflare,
   createCloudflareWorker,
   type CloudflareEnvLike,
   type CloudflareHostedRlmSessionManager,
+  type ProjectLike,
 } from "@superobjective/cloudflare";
 import { buildRlmFacetWorkerSource } from "../packages/cloudflare/src/rlm-facet-source";
-import { so, type ModelProvider, type RLMSessionCheckpoint, type RunTrace, type TraceStore } from "superobjective";
+import { compileRlmStep } from "../packages/cloudflare/src/rlm-step";
+import { so, type ModelProvider, type RLMSessionCheckpoint, type RunOptions, type RunTrace, type TraceStore } from "superobjective";
 
 const financeCorpus = so.corpus({
   id: "finance-records",
@@ -305,6 +307,7 @@ function createHostedSessionManager(config?: {
       inlineInputs: Record<string, unknown>;
       trackedNames: string[];
       globals: Record<string, unknown>;
+      definitionStatements: Record<string, string>;
       checkpoint: RLMSessionCheckpoint | null;
       stepCount: number;
       failureConsumed: boolean;
@@ -319,6 +322,7 @@ function createHostedSessionManager(config?: {
           inlineInputs: {},
           trackedNames: [],
           globals: {},
+          definitionStatements: {},
           checkpoint: null,
           stepCount: 0,
           failureConsumed: false,
@@ -331,6 +335,7 @@ function createHostedSessionManager(config?: {
           state.inlineInputs = payload.inlineInputs;
           state.trackedNames = [];
           state.globals = {};
+          state.definitionStatements = {};
           state.checkpoint = null;
           state.stepCount = 0;
           state.failureConsumed = false;
@@ -359,6 +364,9 @@ function createHostedSessionManager(config?: {
           const trackedSync = compiled.trackedNames
             .map((name) => `__globals[${JSON.stringify(name)}] = ${name};`)
             .join("\n");
+          const definitionPrelude = Object.values(state.definitionStatements)
+            .sort((left, right) => left.localeCompare(right))
+            .join("\n");
           const body = [
             "let __submitted;",
             "const __globals = globalThis.__rlmGlobals;",
@@ -376,6 +384,7 @@ function createHostedSessionManager(config?: {
             "const readText = async () => { throw new Error('readText not configured in test'); };",
             "const searchText = async () => { throw new Error('searchText not configured in test'); };",
             "const readMatchWindow = async () => { throw new Error('readMatchWindow not configured in test'); };",
+            definitionPrelude,
             trackedPrelude,
             compiled.transformedCode,
             trackedSync,
@@ -391,6 +400,14 @@ function createHostedSessionManager(config?: {
             const result = (await runner()) as { submitted?: unknown };
             state.globals = globals;
             state.trackedNames = compiled.trackedNames;
+            for (const name of compiled.declaredNames ?? []) {
+              if (Object.prototype.hasOwnProperty.call(state.globals, name)) {
+                delete state.definitionStatements[name];
+              }
+            }
+            for (const entry of compiled.definitionStatements ?? []) {
+              state.definitionStatements[entry.name] = entry.statement;
+            }
             return {
               ...(result.submitted !== undefined ? { submitted: result.submitted } : {}),
               ...(logs.length > 0 ? { logs, stdout: logs.join("\n") } : {}),
@@ -415,6 +432,19 @@ function createHostedSessionManager(config?: {
 }
 
 describe("cloudflare RLM runtime", () => {
+  it("compiles function declarations as source definitions rather than cloneable globals", () => {
+    const compiled = compileRlmStep(
+      "function helper(value) { return value + 1; }\nconst answer = helper(41);",
+      [],
+    );
+
+    expect(compiled.definitionNames).toEqual(["helper"]);
+    expect(compiled.trackedNames).toEqual(["answer"]);
+    expect(compiled.definitionStatements[0]?.statement).toContain("var helper = function helper");
+    expect(compiled.transformedCode).toContain("var helper = function helper");
+    expect(compiled.transformedCode).toContain("answer = helper(41);");
+  });
+
   it("exposes DSPy-style REPL primitives for inputs, print, and llm_query", async () => {
     const traces = createTraceCapture();
     const solvePrompt = so.rlm(
@@ -609,6 +639,61 @@ describe("cloudflare RLM runtime", () => {
     expect(trace?.programmable?.steps[1]?.stdout).not.toContain("step1 3");
   });
 
+  it("persists function definitions as source without checkpointing function values", async () => {
+    const traces = createTraceCapture();
+    const hostedManager = createHostedSessionManager();
+    const module = so.rlm(
+      so
+        .signature("hosted_function_definition_probe")
+        .withInstructions("Use a helper function declared in an earlier step.")
+        .withInput("prompt", z.string(), {
+          description: "Prompt text.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "Final answer.",
+        })
+        .build(),
+      {
+        runtime: cloudflare.rlm.runtime({
+          hostedSessionManager: hostedManager,
+        }),
+        model: createScriptedStructuredModel([
+          {
+            reasoning: "Declare a reusable helper.",
+            code: "function double(value) { return value * 2; } print('helper ready');",
+          },
+          {
+            reasoning: "Use the helper without redefining it.",
+            code: "const answer = String(double(21)); print('answer', answer); await SUBMIT({ answer });",
+          },
+        ]),
+        maxIterations: 2,
+        maxLlmCalls: 4,
+        extract: {
+          enabled: false,
+        },
+      },
+    );
+
+    const result = await module(
+      {
+        prompt: "use helper",
+      },
+      {
+        runtime: {
+          traceStore: traces.store,
+        },
+      },
+    );
+
+    expect(result.answer).toBe("42");
+    const trace = traces.saved.at(-1);
+    expect(trace?.programmable?.steps).toHaveLength(2);
+    expect(trace?.programmable?.steps[0]?.error).toBeUndefined();
+    expect(trace?.programmable?.steps[1]?.error).toBeUndefined();
+    expect(trace?.programmable?.steps[1]?.stdout).toContain("answer 42");
+  });
+
   it("resumes a hosted session from the saved checkpoint on the same runId", async () => {
     const traces = createTraceCapture();
     const hostedManager = createHostedSessionManager();
@@ -698,7 +783,7 @@ describe("cloudflare RLM runtime", () => {
           __superobjectiveRlmResume: {
             runId,
           },
-        } as unknown as Parameters<typeof module>[1]["runtime"],
+        } as NonNullable<RunOptions["runtime"]>,
       },
     );
 
@@ -715,6 +800,71 @@ describe("cloudflare RLM runtime", () => {
     });
     expect(resumedTrace?.programmable?.steps[0]?.stdout).toContain("first 1");
     expect(resumedTrace?.programmable?.steps[1]?.stdout).toContain("second 2");
+  });
+
+  it("truncates oversized step logs before feeding them back into repl history", async () => {
+    const traces = createTraceCapture();
+    const longLog = "x".repeat(5_000);
+    let callIndex = 0;
+    let secondPrompt = "";
+    const model: ModelProvider = {
+      id: "log-truncation-model",
+      async structured(args) {
+        callIndex += 1;
+        if (callIndex === 1) {
+          return {
+            object: {
+              reasoning: "Create a noisy observation.",
+              code: `print(${JSON.stringify(longLog)});`,
+            },
+          };
+        }
+
+        secondPrompt = JSON.stringify(args.messages);
+        return {
+          object: {
+            reasoning: "Submit after observing truncated history.",
+            code: "await SUBMIT({ answer: 'ok' });",
+          },
+        };
+      },
+    };
+
+    const module = so.rlm(
+      so
+        .signature("truncate_rlm_history")
+        .withInstructions("Test that noisy RLM observations do not bloat subsequent act prompts.")
+        .withInput("question", z.string(), {
+          description: "The question.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "The answer.",
+        })
+        .build(),
+      {
+        runtime: cloudflare.rlm.runtime({
+          executor: createNodeExecutor(),
+        }),
+        model,
+        maxIterations: 2,
+        maxLlmCalls: 3,
+        maxOutputChars: 200,
+      },
+    );
+
+    await module(
+      {
+        question: "Can large logs avoid prompt bloat?",
+      },
+      {
+        runtime: {
+          traceStore: traces.store,
+        },
+      },
+    );
+
+    expect(secondPrompt).toContain("characters omitted");
+    expect(secondPrompt).not.toContain("x".repeat(1_000));
   });
 
   it("emits a syntactically valid facet worker source", () => {
@@ -769,7 +919,7 @@ describe("cloudflare RLM runtime", () => {
       project: so.project({
         programs: [inspectFinance],
         corpora: [financeCorpus],
-      }),
+      }) as ProjectLike,
     });
 
     const response = await worker.fetch(
@@ -822,6 +972,94 @@ describe("cloudflare RLM runtime", () => {
     expect(runPayload.steps.map((step) => step.stepIndex)).toEqual([1, 2]);
   });
 
+  it("persists a running RLM checkpoint before the route completes", async () => {
+    const runId = "run_partial_checkpoint_test";
+    let worker: ReturnType<typeof createCloudflareWorker> | undefined;
+    let persistedRunStatus: string | undefined;
+    let persistedStepCount = 0;
+    let callIndex = 0;
+
+    const model: ModelProvider = {
+      id: "partial-checkpoint-model",
+      async structured() {
+        callIndex += 1;
+        if (callIndex === 1) {
+          return {
+            object: {
+              reasoning: "Record one observable step.",
+              code: "print('checkpoint-visible');",
+            },
+          };
+        }
+
+        const response = await worker!.fetch(
+          new Request(`https://example.com/kernel/rlm/${encodeURIComponent(runId)}`),
+        );
+        const payload = (await response.json()) as {
+          run?: {
+            status?: string;
+          };
+          steps?: unknown[];
+        };
+        persistedRunStatus = payload.run?.status;
+        persistedStepCount = payload.steps?.length ?? 0;
+
+        return {
+          object: {
+            reasoning: "Submit after checking persisted checkpoint.",
+            code: "await SUBMIT({ answer: 'done' });",
+          },
+        };
+      },
+    };
+
+    const module = so.rlm(
+      so
+        .signature("partial_checkpoint_probe")
+        .withInstructions("Test that RLM checkpoints are visible while the route is still running.")
+        .withInput("question", z.string(), {
+          description: "The question.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "The answer.",
+        })
+        .build(),
+      {
+        runtime: cloudflare.rlm.runtime({
+          executor: createNodeExecutor(),
+        }),
+        model,
+        maxIterations: 2,
+        maxLlmCalls: 3,
+      },
+    );
+
+    worker = createCloudflareWorker({
+      project: so.project({
+        programs: [module],
+      }) as ProjectLike,
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/kernel/rlm/partial_checkpoint_probe", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          runId,
+          input: {
+            question: "Can the checkpoint be read before completion?",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(persistedRunStatus).toBe("running");
+    expect(persistedStepCount).toBe(1);
+  });
+
   it("returns a traceId and persists a failed RLM trace", async () => {
     const failingRlm = so.rlm(
       so
@@ -852,7 +1090,7 @@ describe("cloudflare RLM runtime", () => {
     const worker = createCloudflareWorker({
       project: so.project({
         programs: [failingRlm],
-      }),
+      }) as ProjectLike,
     });
 
     const response = await worker.fetch(

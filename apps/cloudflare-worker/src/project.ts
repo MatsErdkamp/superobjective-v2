@@ -15,7 +15,7 @@ import {
 import { triageTicket } from "./triage";
 import { lookupOrder } from "./tools";
 
-export const supportAgent = so.agent({
+const supportAgent = so.agent({
   name: "support",
   system: so.text({
     value: "You are a precise and concise support assistant.",
@@ -25,7 +25,7 @@ export const supportAgent = so.agent({
   tools: [triageTicket, lookupOrder],
 });
 
-export const traceProbeAgent = so.agent({
+const traceProbeAgent = so.agent({
   name: "trace_probe",
   system: so.text({
     value:
@@ -43,7 +43,7 @@ export const traceProbeAgent = so.agent({
   ],
 });
 
-export const supportRpc = so.rpc({
+const supportRpc = so.rpc({
   name: "support_rpc",
   handlers: {
     triageTicket,
@@ -51,14 +51,14 @@ export const supportRpc = so.rpc({
   },
 });
 
-export const traceProbeRpc = so.rpc({
+const traceProbeRpc = so.rpc({
   name: "trace_probe_rpc",
   handlers: {
     traceProbeFlow,
   },
 });
 
-export const supportMcp = so.mcp({
+const supportMcp = so.mcp({
   name: "support_tools",
   tools: [triageTicket, lookupOrder],
 });

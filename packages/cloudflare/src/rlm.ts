@@ -10,7 +10,6 @@ import {
 import type {
   RLMExecuteStepRequest,
   RLMExecuteStepResult,
-  RLMHistoryEntry,
   RLMPreparedContext,
   RLMQueryProvider,
   RLMResource,
@@ -620,8 +619,6 @@ function asSingleArg<TArgs, TOutput>(fn: (args: TArgs) => Promise<TOutput>) {
 
 class HostedCloudflareRLMSession implements RLMSession {
   readonly sessionKind = "cloudflare-hosted-facet";
-  private preparedContext: RLMPreparedContext | null = null;
-  private inlineInputs: Record<string, unknown> = {};
 
   constructor(
     private readonly runId: string,
@@ -642,8 +639,6 @@ class HostedCloudflareRLMSession implements RLMSession {
       tools: this.tools,
     });
 
-    this.preparedContext = bundle.preparedContext;
-    this.inlineInputs = bundle.inlineInputs;
     await this.handle.init({
       runId: this.runId,
       moduleId: this.moduleId,
@@ -686,16 +681,6 @@ class HostedCloudflareRLMSession implements RLMSession {
 
   async resume(): Promise<RLMSessionCheckpoint | null> {
     const checkpoint = await this.handle.resume();
-    if (checkpoint != null) {
-      this.preparedContext = checkpoint.preparedContext;
-      const manifest = checkpoint.preparedContext.manifest;
-      if (
-        isRecord(manifest) &&
-        isRecord(manifest.inlineInputs)
-      ) {
-        this.inlineInputs = manifest.inlineInputs as Record<string, unknown>;
-      }
-    }
     return checkpoint;
   }
 

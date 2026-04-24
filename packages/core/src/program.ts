@@ -19,7 +19,8 @@ import {
   startComponent,
 } from "./execution.js";
 import { getRuntimeContext } from "./runtime.js";
-import { chooseArtifactCandidate, mergeCandidates, serializeError } from "./utils.js";
+import { mergeCandidates } from "./candidate.js";
+import { chooseArtifactCandidate, serializeError } from "./utils.js";
 import type { Tool } from "./types.js";
 
 type ProgramInternalOptions = RunOptions & {

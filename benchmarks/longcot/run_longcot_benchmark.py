@@ -88,6 +88,34 @@ def response_text_from_payload(payload: dict[str, Any]) -> str | None:
     return None
 
 
+async def poll_async_rlm_run(
+    *,
+    client: httpx.AsyncClient,
+    base_url: str,
+    run_id: str,
+    poll_interval_s: float,
+    poll_timeout_s: float | None,
+) -> dict[str, Any]:
+    started_at = time.perf_counter()
+    while True:
+        response = await client.get(
+            f"{base_url.rstrip('/')}/kernel/rlm/{run_id}",
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        body = response.json()
+        run = body.get("run") if isinstance(body, dict) else None
+        if isinstance(run, dict):
+            status = run.get("status")
+            if status in {"completed", "failed"}:
+                return body
+
+        if poll_timeout_s is not None and time.perf_counter() - started_at >= poll_timeout_s:
+            raise TimeoutError(f"Timed out polling RLM run {run_id} after {poll_timeout_s}s")
+
+        await asyncio.sleep(poll_interval_s)
+
+
 def default_base_url() -> str:
     return (
         os.environ.get("LONGCOT_BASE_URL")
@@ -111,6 +139,9 @@ async def run_one(
     module_id: str,
     session_prefix: str,
     timeout_s: float | None,
+    async_rlm: bool,
+    poll_interval_s: float,
+    poll_timeout_s: float | None,
     question: Question,
     verify_options: VerifyOptions,
 ) -> dict[str, Any]:
@@ -131,6 +162,11 @@ async def run_one(
         },
         "sessionId": f"{session_prefix}-{question.question_id}",
     }
+    if async_rlm:
+        payload["execution"] = {
+            "durable": True,
+            "background": True,
+        }
 
     try:
         response = await client.post(
@@ -154,6 +190,61 @@ async def run_one(
         return row
 
     if response.status_code != 200 or body.get("ok") is not True:
+        if response.status_code != 202:
+            row["errors"] = [
+                {
+                    "message": str(body.get("error") or f"HTTP {response.status_code}"),
+                    "trace_id": body.get("traceId"),
+                }
+            ]
+            return row
+
+    if body.get("status") == "running" and isinstance(body.get("runId"), str):
+        row["run_id"] = body["runId"]
+        row["trace_id"] = body.get("traceId") if isinstance(body.get("traceId"), str) else body["runId"]
+        try:
+            poll_body = await poll_async_rlm_run(
+                client=client,
+                base_url=base_url,
+                run_id=body["runId"],
+                poll_interval_s=poll_interval_s,
+                poll_timeout_s=poll_timeout_s,
+            )
+        except Exception as exc:  # noqa: BLE001
+            row["errors"] = [
+                {
+                    "message": str(exc),
+                    "type": type(exc).__name__,
+                    "trace_id": row.get("trace_id"),
+                }
+            ]
+            row["latency_s"] = round(time.perf_counter() - started_at, 3)
+            return row
+
+        run = poll_body.get("run") if isinstance(poll_body, dict) else None
+        if not isinstance(run, dict):
+            row["errors"] = [{"message": "RLM poll response did not contain a run object"}]
+            row["latency_s"] = round(time.perf_counter() - started_at, 3)
+            return row
+
+        row["latency_s"] = round(time.perf_counter() - started_at, 3)
+        if isinstance(run.get("traceId"), str):
+            row["trace_id"] = run["traceId"]
+        if run.get("status") == "failed":
+            row["errors"] = [
+                {
+                    "message": str((run.get("error") or {}).get("message") if isinstance(run.get("error"), dict) else run.get("error")),
+                    "trace_id": row.get("trace_id"),
+                }
+            ]
+            return row
+
+        body = {
+            "ok": True,
+            "output": run.get("output"),
+            "traceId": run.get("traceId") or row.get("trace_id"),
+        }
+    elif response.status_code != 200 or body.get("ok") is not True:
         row["errors"] = [
             {
                 "message": str(body.get("error") or f"HTTP {response.status_code}"),
@@ -274,6 +365,9 @@ async def run_benchmark(args: argparse.Namespace) -> int:
                     module_id=args.module_id,
                     session_prefix=args.session_prefix,
                     timeout_s=args.timeout_s,
+                    async_rlm=not args.sync_rlm,
+                    poll_interval_s=args.poll_interval_s,
+                    poll_timeout_s=args.poll_timeout_s,
                     question=question,
                     verify_options=verify_options,
                 )
@@ -336,7 +430,24 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--timeout-s",
         type=parse_timeout,
         default=None,
-        help="Per-request HTTP timeout in seconds. Default is disabled. Use 0 or none to disable explicitly.",
+        help="Initial POST HTTP timeout in seconds. Default is disabled. Use 0 or none to disable explicitly.",
+    )
+    parser.add_argument(
+        "--poll-timeout-s",
+        type=parse_timeout,
+        default=None,
+        help="Total async RLM polling timeout in seconds. Default is disabled.",
+    )
+    parser.add_argument(
+        "--poll-interval-s",
+        type=float,
+        default=5.0,
+        help="Polling interval for async RLM runs.",
+    )
+    parser.add_argument(
+        "--sync-rlm",
+        action="store_true",
+        help="Use the legacy synchronous RLM POST instead of durable background execution.",
     )
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--session-prefix", default="longcot")

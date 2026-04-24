@@ -5,23 +5,6 @@ import { so } from "superobjective";
 
 import { createWorkersAiJsonModel } from "./workers-ai";
 
-const relaxedXmlAdapter = (() => {
-  const base = so.adapters.xml();
-  return {
-    ...base,
-    async format(args: Parameters<typeof base.format>[0]) {
-      const formatted = await base.format(args);
-      return {
-        ...formatted,
-        output: {
-          ...formatted.output,
-          strict: false,
-        },
-      };
-    },
-  };
-})();
-
 const gemmaStructuredModel = createWorkersAiJsonModel({
   model: "@cf/google/gemma-4-26b-a4b-it",
   systemPreamble: [
@@ -52,18 +35,22 @@ export const inspectLaunchDossier = so.rlm(
   {
     runtime: cloudflare.rlm.runtime(),
     model: gemmaStructuredModel as never,
-    maxIterations: 4,
-    maxLlmCalls: 4,
-    adapter: relaxedXmlAdapter,
+    maxIterations: 5,
+    maxLlmCalls: 6,
+    adapter: so.adapters.nativeStructured(),
     act: {
       instructions: so.text({
         value: [
           "Use the prepared runtime helpers to inspect the dossier before answering.",
           "Every runtime helper returns a Promise. Always use await with listResources, searchText, readMatchWindow, and SUBMIT.",
+          "searchText returns an object with a matches array. Each match has match/snippet/startChar/endChar fields, not a text field.",
+          "readMatchWindow returns an object. The actual evidence string is in the returned object's text field.",
           "Use a short three-step plan and keep each step focused.",
           "When there is no REPL history yet, only initialize dossierPath. Use code like: const resources = await listResources(); const dossier = resources.find((resource) => resource.name === 'dossier'); if (!dossier) throw new Error('dossier resource missing'); const dossierPath = dossier.path;",
           "When dossierPath is available but match is not, only run searchText. Use code like: const results = await searchText(dossierPath, 'LAUNCH_CODE='); if (!results.matches.length) throw new Error('launch code evidence missing'); const match = results.matches[0];",
-          "When match is available, read the exact evidence line with await readMatchWindow(...), parse the answer from the LAUNCH_CODE=<value> format, and then await SUBMIT({ answer, evidence }).",
+          "When match is available, read the exact evidence line with const window = await readMatchWindow(...); const evidence = window.text; parse the answer from the LAUNCH_CODE=<value> line, and then await SUBMIT({ answer, evidence }).",
+          "The answer is only the non-newline value immediately after LAUNCH_CODE=. Use a pattern like /LAUNCH_CODE=([^\\n]+)/, then trim the capture.",
+          "Do not include later lines such as 'Use the launch code only after verification.' in the answer field.",
           "The final answer must be parsed from the evidence line itself. Do not guess it ahead of time.",
           "If parsing fails, throw an error instead of submitting a guess.",
           "Use concise JavaScript and reuse prior variables rather than recomputing everything.",

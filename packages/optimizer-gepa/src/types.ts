@@ -1,5 +1,7 @@
 export type TextCandidate = Record<string, string>;
 
+export type GepaArtifactTargetKind = "predict" | "program" | "agent" | "rlm";
+
 export type ReflectionPathKind =
   | "instructions"
   | "input_description"
@@ -107,7 +109,7 @@ export type JsonSchemaLike = Record<string, unknown>;
 
 export type ComponentTraceLike = {
   componentId: string;
-  componentKind: "predict" | "program" | "adapter" | "tool" | "rpc" | "mcp";
+  componentKind: "predict" | "program" | "adapter" | "tool" | "rpc" | "mcp" | "rlm";
   startedAt: string;
   endedAt?: string;
   input: unknown;
@@ -155,7 +157,7 @@ export type ToolCallTraceLike = {
 export type RunTraceLike = {
   runId: string;
   targetId: string;
-  targetKind: "predict" | "program" | "agent" | "rpc" | "mcp";
+  targetKind: GepaArtifactTargetKind | "rpc" | "mcp";
   startedAt: string;
   endedAt?: string;
   input: unknown;
@@ -207,7 +209,7 @@ export type GepaTargetLike<TInput = unknown, TOutput = unknown> = ((
   input: TInput,
   options?: unknown,
 ) => Promise<TOutput>) & {
-  kind: "predict" | "program" | "agent";
+  kind: GepaArtifactTargetKind;
   id: string;
   inspectTextCandidate(): TextCandidate;
   withCandidate(candidate: TextCandidate): GepaTargetLike<TInput, TOutput>;
@@ -300,7 +302,7 @@ export type FrontierSnapshot = {
 export type CompiledArtifactLike = {
   id: string;
   target: {
-    kind: "predict" | "program" | "agent";
+    kind: GepaArtifactTargetKind;
     id: string;
   };
   optimizer: {

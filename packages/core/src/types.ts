@@ -28,8 +28,6 @@ export type SerializedError = {
 
 export type ModelMessageRole = "system" | "user" | "assistant" | "tool";
 
-export type MessagePart = string;
-
 export type ModelMessage = {
   role: ModelMessageRole;
   content: string;
@@ -58,7 +56,6 @@ export type Field<T = unknown, TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
 };
 
 export type FieldRecord = Record<string, Field<any, any>>;
-export type FieldMap = FieldRecord;
 
 export type InferField<TField> = TField extends Field<infer TValue, any> ? TValue : never;
 
@@ -243,10 +240,12 @@ export type Metric<TInput, TPrediction, TExpected> = {
 
 export type TextCandidate = Record<string, string>;
 
+export type ArtifactTargetKind = "predict" | "program" | "agent" | "rlm";
+
 export type CompiledArtifact = {
   id: string;
   target: {
-    kind: "predict" | "program" | "agent";
+    kind: ArtifactTargetKind;
     id: string;
   };
   optimizer: {
@@ -371,12 +370,11 @@ export type StateSource<T = unknown> = {
   __type?: T;
 };
 
-export type PreparedSource<T = unknown> = {
+export type PreparedSource = {
   kind: "prepared";
   mode: "direct" | "codemode";
   instructions?: TextParam;
   metadata?: Record<string, unknown>;
-  __type?: T;
 };
 
 export type InputSource<T = unknown> =
@@ -385,7 +383,7 @@ export type InputSource<T = unknown> =
   | ChatSource<T>
   | ToolResultSource<T>
   | StateSource<T>
-  | PreparedSource<T>;
+  | PreparedSource;
 
 export type ToolBindingDefinition<TInput> = {
   name?: string;
@@ -521,16 +519,16 @@ export type ArtifactStore = {
   saveArtifact(artifact: CompiledArtifact): Promise<void>;
   loadArtifact(id: string): Promise<CompiledArtifact | null>;
   listArtifacts?(args?: {
-    targetKind?: "predict" | "program" | "agent";
+    targetKind?: ArtifactTargetKind;
     targetId?: string;
     limit?: number;
   }): Promise<CompiledArtifact[]>;
   loadActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKind;
     targetId: string;
   }): Promise<CompiledArtifact | null>;
   setActiveArtifact(args: {
-    targetKind: "predict" | "program" | "agent";
+    targetKind: ArtifactTargetKind;
     targetId: string;
     artifactId: string;
   }): Promise<void>;
@@ -740,6 +738,7 @@ export type RLMOptions = {
   queryProvider?: RLMQueryProvider;
   maxIterations?: number;
   maxLlmCalls?: number;
+  maxQueryCalls?: number;
   maxOutputChars?: number;
   adapter?: Adapter;
   model?: RuntimeContext["model"];
@@ -956,8 +955,6 @@ export type Optimizer<TTarget> = {
     metadata?: Record<string, unknown>;
   }): Promise<CompiledArtifact>;
 };
-
-export type CompileOptions<TTarget> = Parameters<Optimizer<TTarget>["compile"]>[0];
 
 export type AnyRunnable = PredictModule<any, any> | Program<any, any> | RLMModule<any, any>;
 

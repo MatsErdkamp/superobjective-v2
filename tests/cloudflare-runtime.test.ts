@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { cloudflare } from "@superobjective/cloudflare";
-import type { CloudflareEnvLike } from "@superobjective/cloudflare";
+import type { CloudflareEnvLike, RuntimeContextLike } from "@superobjective/cloudflare";
 import { so } from "superobjective";
 
 type WorkersAIRunOptions = {
@@ -68,13 +68,20 @@ class TestBucket {
     this.store.delete(key);
   }
 
-  async list(options?: { prefix?: string }) {
+  async list(options?: { prefix?: string; cursor?: string; limit?: number }) {
     const prefix = options?.prefix ?? "";
+    const offset = options?.cursor != null ? Number.parseInt(options.cursor, 10) : 0;
+    const limit = options?.limit ?? 2;
+    const matching = [...this.store.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .sort((left, right) => left.localeCompare(right));
+    const page = matching.slice(offset, offset + limit);
+    const nextOffset = offset + page.length;
+
     return {
-      objects: [...this.store.keys()]
-        .filter((key) => key.startsWith(prefix))
-        .sort((left, right) => left.localeCompare(right))
-        .map((key) => ({ key })),
+      objects: page.map((key) => ({ key })),
+      truncated: nextOffset < matching.length,
+      ...(nextOffset < matching.length ? { cursor: String(nextOffset) } : {}),
     };
   }
 }
@@ -263,6 +270,29 @@ describe("cloudflare workersAI()", () => {
   });
 });
 
+describe("cloudflare R2 stores", () => {
+  it("follows R2 list cursors when listing blob keys", async () => {
+    const bucket = new TestBucket({
+      "runs/a.json": JSON.stringify({ id: "a" }),
+      "runs/b.json": JSON.stringify({ id: "b" }),
+      "runs/c.json": JSON.stringify({ id: "c" }),
+      "runs/d.json": JSON.stringify({ id: "d" }),
+    });
+    const store = cloudflare.r2BlobStore({
+      env: {
+        SO_ARTIFACTS: bucket as NonNullable<CloudflareEnvLike["SO_ARTIFACTS"]>,
+      },
+    });
+
+    await expect(store.list?.("runs/")).resolves.toEqual([
+      "runs/a.json",
+      "runs/b.json",
+      "runs/c.json",
+      "runs/d.json",
+    ]);
+  });
+});
+
 describe("cloudflare corpora()", () => {
   it("resolves corpus handles, searches, and reads files from bound env storage", async () => {
     const env = createCorpusEnv();
@@ -391,7 +421,7 @@ describe("cloudflare corpora()", () => {
     const runtime = {
       ...so.getRuntimeContext(),
       corpora: provider,
-    };
+    } as RuntimeContextLike;
 
     const listTool = cloudflare.corpora.listFilesTool("finance-records");
     const readTool = cloudflare.corpora.readFileTool("finance-records");

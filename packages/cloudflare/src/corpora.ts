@@ -2,7 +2,6 @@ import { tool as defineTool, text as defineText } from "superobjective";
 import { z } from "zod";
 
 import type {
-  AISearchInstanceLike,
   AISearchNamespaceLike,
   CloudflareEnvLike,
   CorpusDescriptorLike,
@@ -19,6 +18,7 @@ import type {
   RuntimeContextLike,
   ToolLike,
 } from "./types";
+import { listR2Keys } from "./r2";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -146,19 +146,6 @@ async function normalizeSearchUploadContent(
 
   const response = new Response(value);
   return new Uint8Array(await response.arrayBuffer());
-}
-
-async function listBucketKeys(bucket: R2BucketLike, prefix: string): Promise<string[]> {
-  if (bucket.list == null) {
-    return [];
-  }
-  const response = await bucket.list({
-    prefix,
-  });
-  if (Array.isArray(response)) {
-    return response.map((item) => (typeof item === "string" ? item : item.key));
-  }
-  return (response.objects ?? []).map((item) => item.key);
 }
 
 function resolveBucket(env: CloudflareEnvLike | undefined, binding: string): R2BucketLike {
@@ -349,7 +336,7 @@ function createCorpusFileHandle(
   return {
     async list(prefix) {
       const lookupPrefix = joinKey(storagePrefix, prefix ?? "");
-      const keys = await listBucketKeys(bucket, lookupPrefix);
+      const keys = await listR2Keys(bucket, lookupPrefix);
       return keys
         .map((key) => stripPrefix(key, storagePrefix))
         .filter((key) => key.length > 0)

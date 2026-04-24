@@ -1,12 +1,9 @@
 import {
-  AgentHost,
   HostedAgentRouteHost,
   HostedMcpRouteHost,
-  McpHost,
   ModuleKernel,
   RlmRuntimeHost,
   RpcHost,
-  ThinkHost,
   cloudflare,
   createCloudflareWorker,
   type CloudflareEnvLike,
@@ -47,15 +44,12 @@ function resolveBlobStore(env?: CloudflareEnvLike) {
 }
 
 export {
-  AgentHost,
   AppStateAgent,
   HostedAgentRouteHost,
   HostedMcpRouteHost,
-  McpHost,
   ModuleKernel,
   RlmRuntimeHost,
   RpcHost,
-  ThinkHost,
 };
 
 const runtimeWorker = createCloudflareWorker({
@@ -182,10 +176,22 @@ function buildDefaultAppConfig() {
   } as const;
 }
 
-async function summarizeApp(app: Awaited<ReturnType<ReturnType<typeof buildAppHost>["get"]>>) {
+type DemoApp = Awaited<ReturnType<ReturnType<typeof buildAppHost>["get"]>>;
+
+function requireAppStorage(app: DemoApp, spaceName: "receipts" | "emails") {
+  const space = app.storage[spaceName];
+  if (space == null) {
+    throw new Error(`App storage space "${spaceName}" is not configured.`);
+  }
+  return space;
+}
+
+async function summarizeApp(app: DemoApp) {
+  const receiptStorage = requireAppStorage(app, "receipts");
+  const emailStorage = requireAppStorage(app, "emails");
   const [receipts, emails, jobs, traces] = await Promise.all([
-    app.storage.receipts.list({ limit: 100 }),
-    app.storage.emails.list({ limit: 100 }),
+    receiptStorage.list({ limit: 100 }),
+    emailStorage.list({ limit: 100 }),
     app.state.list({ namespace: "jobs", limit: 100 }),
     app.state.listTraces({ limit: 100 }),
   ]);
@@ -206,10 +212,12 @@ async function summarizeApp(app: Awaited<ReturnType<ReturnType<typeof buildAppHo
 }
 
 async function exerciseLiveApp(
-  app: Awaited<ReturnType<ReturnType<typeof buildAppHost>["get"]>>,
+  app: DemoApp,
   _request: Request,
   _env: CloudflareEnvLike,
 ) {
+  const receiptStorage = requireAppStorage(app, "receipts");
+  const emailStorage = requireAppStorage(app, "emails");
   const jobs = [
     {
       jobId: "job_0",
@@ -250,7 +258,7 @@ async function exerciseLiveApp(
         ? `We are reviewing the ${job.vendor} billing issue and will follow up shortly.`
         : `We are checking the ${job.vendor} request and will send an update shortly.`;
 
-    await app.storage.receipts.upsert(`receipt:${job.jobId}`, {
+    await receiptStorage.upsert(`receipt:${job.jobId}`, {
       kind: "report",
       body: {
         vendor: job.vendor,
@@ -268,7 +276,7 @@ async function exerciseLiveApp(
       searchableText: `${job.vendor} ${category} ${response}`,
     });
 
-    await app.storage.emails.upsert(`email:${job.jobId}`, {
+    await emailStorage.upsert(`email:${job.jobId}`, {
       kind: "email",
       body: {
         subject: job.subject,
@@ -308,7 +316,7 @@ async function exerciseLiveApp(
     );
   }
 
-  const searchResults = await app.storage.emails.search({
+  const searchResults = await emailStorage.search({
     query: "duplicate charge",
     limit: 10,
   });
@@ -794,6 +802,12 @@ async function handleDashboardRequest(
     }
 
     const [, rawAppId, action] = appMatch;
+    if (rawAppId == null) {
+      return jsonResponse(400, {
+        ok: false,
+        error: "Missing app id.",
+      });
+    }
     const appId = decodeURIComponent(rawAppId);
 
     try {

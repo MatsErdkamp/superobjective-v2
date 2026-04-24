@@ -23,6 +23,7 @@ type FunctionLikeNode = Node & {
 export type CompiledRlmStep = {
   trackedNames: string[];
   declaredNames: string[];
+  definitionNames: string[];
   definitionStatements: Array<{
     name: string;
     statement: string;
@@ -136,8 +137,18 @@ function cloneNode<T extends Node>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function assignmentFromDeclarationName(name: string, value: Node): Node {
-  return assignmentStatement(identifier(name), value);
+function varDeclarationFromDefinitionName(name: string, value: Node): Node {
+  return {
+    type: "VariableDeclaration",
+    kind: "var",
+    declarations: [
+      {
+        type: "VariableDeclarator",
+        id: identifier(name),
+        init: value,
+      },
+    ],
+  };
 }
 
 function toDefinitionStatement(statement: Node): string {
@@ -158,6 +169,8 @@ export function compileRlmStep(code: string, existingTrackedNames: string[]): Co
   }) as unknown as ProgramNode;
 
   const declaredNames = new Set<string>();
+  const valueNames = new Set<string>();
+  const definitionNames = new Set<string>();
   const definitionStatements = new Map<string, string>();
   const transformedBody: Node[] = [];
 
@@ -169,24 +182,26 @@ export function compileRlmStep(code: string, existingTrackedNames: string[]): Co
         .declarations;
       for (const declaration of declarations) {
         collectBindingNames(declaration.id, declaredNames);
+
+        if (declaration.id.type === "Identifier" && isFunctionLike(declaration.init)) {
+          const name = String(declaration.id.name);
+          definitionNames.add(name);
+          const definition = varDeclarationFromDefinitionName(name, cloneNode(declaration.init as Node));
+          transformedBody.push(definition);
+          definitionStatements.set(
+            name,
+            toDefinitionStatement(definition),
+          );
+          continue;
+        }
+
+        collectBindingNames(declaration.id, valueNames);
         transformedBody.push(
           assignmentStatement(
             cloneNode(declaration.id),
             cloneNode((declaration.init ?? undefinedNode()) as Node),
           ),
         );
-
-        if (declaration.id.type === "Identifier" && isFunctionLike(declaration.init)) {
-          definitionStatements.set(
-            String(declaration.id.name),
-            toDefinitionStatement(
-              assignmentFromDeclarationName(
-                String(declaration.id.name),
-                cloneNode(declaration.init as Node),
-              ),
-            ),
-          );
-        }
       }
       continue;
     }
@@ -197,13 +212,14 @@ export function compileRlmStep(code: string, existingTrackedNames: string[]): Co
         throw new Error("RLM steps may not declare anonymous top-level functions.");
       }
       declaredNames.add(declaration.id.name);
+      definitionNames.add(declaration.id.name);
       const expression = {
         ...cloneNode(statement),
         type: "FunctionExpression",
       };
-      const assignment = assignmentFromDeclarationName(declaration.id.name, expression);
-      transformedBody.push(assignment);
-      definitionStatements.set(declaration.id.name, toDefinitionStatement(assignment));
+      const definition = varDeclarationFromDefinitionName(declaration.id.name, expression);
+      transformedBody.push(definition);
+      definitionStatements.set(declaration.id.name, toDefinitionStatement(definition));
       continue;
     }
 
@@ -213,26 +229,28 @@ export function compileRlmStep(code: string, existingTrackedNames: string[]): Co
         throw new Error("RLM steps may not declare anonymous top-level classes.");
       }
       declaredNames.add(declaration.id.name);
+      definitionNames.add(declaration.id.name);
       const expression = {
         ...cloneNode(statement),
         type: "ClassExpression",
       };
-      const assignment = assignmentFromDeclarationName(declaration.id.name, expression);
-      transformedBody.push(assignment);
-      definitionStatements.set(declaration.id.name, toDefinitionStatement(assignment));
+      const definition = varDeclarationFromDefinitionName(declaration.id.name, expression);
+      transformedBody.push(definition);
+      definitionStatements.set(declaration.id.name, toDefinitionStatement(definition));
       continue;
     }
 
     transformedBody.push(cloneNode(statement));
   }
 
-  const trackedNames = [...new Set([...existingTrackedNames, ...declaredNames])].sort((left, right) =>
+  const trackedNames = [...new Set([...existingTrackedNames, ...valueNames])].sort((left, right) =>
     left.localeCompare(right),
   );
 
   return {
     trackedNames,
     declaredNames: [...declaredNames].sort((left, right) => left.localeCompare(right)),
+    definitionNames: [...definitionNames].sort((left, right) => left.localeCompare(right)),
     definitionStatements: [...definitionStatements.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, statement]) => ({

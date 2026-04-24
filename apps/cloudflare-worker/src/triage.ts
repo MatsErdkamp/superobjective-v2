@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { so } from "superobjective";
 
-export const TriageTicket = so
+const TriageTicket = so
   .signature("triage_ticket")
   .withInstructions("Classify a support ticket for routing and escalation.", {
     optimize: true,

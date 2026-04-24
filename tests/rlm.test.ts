@@ -9,9 +9,49 @@ import {
   type RLMSession,
   type RunTrace,
   type TraceStore,
+  type CompiledArtifact,
 } from "superobjective";
 
 describe("RLM", () => {
+  it("stores and filters RLM artifacts as first-class target artifacts", async () => {
+    const store = so.stores.memory();
+    const artifact: CompiledArtifact = {
+      id: "artifact_rlm_demo",
+      target: {
+        kind: "rlm",
+        id: "inspect_question",
+      },
+      optimizer: {
+        id: "test",
+        version: "0.0.0",
+        configHash: "test",
+      },
+      textCandidate: {
+        "inspect_question.instructions": "Inspect carefully.",
+      },
+      eval: {
+        metricName: "exact",
+        trainSize: 1,
+      },
+      createdAt: "2026-04-23T00:00:00.000Z",
+    };
+
+    await store.saveArtifact(artifact);
+    await store.setActiveArtifact({
+      targetKind: "rlm",
+      targetId: "inspect_question",
+      artifactId: artifact.id,
+    });
+
+    await expect(store.listArtifacts?.({ targetKind: "rlm" })).resolves.toEqual([artifact]);
+    await expect(
+      store.loadActiveArtifact({
+        targetKind: "rlm",
+        targetId: "inspect_question",
+      }),
+    ).resolves.toEqual(artifact);
+  });
+
   it("falls back to extract when SUBMIT payload is invalid", async () => {
     const traces = createTraceCapture();
     const model = createScriptedStructuredModel([
@@ -224,6 +264,126 @@ describe("RLM", () => {
       evidence: "The launch code is ORBIT-9.",
     });
     expect(trace?.components.filter((component) => component.componentKind === "predict")).toHaveLength(3);
+  });
+
+  it("passes configured maxQueryCalls to the RLM executor", async () => {
+    let observedMaxQueryCalls: number | undefined;
+    const model = createScriptedStructuredModel([
+      {
+        reasoning: "Submit directly.",
+        code: "await SUBMIT({ answer: 'ok' });",
+      },
+    ]);
+
+    const runtime: RLMRuntime = {
+      async createSession(): Promise<RLMSession> {
+        return {
+          async prepareContext(): Promise<RLMPreparedContext> {
+            return defaultPreparedContext();
+          },
+          async executeStep(request) {
+            observedMaxQueryCalls = request.maxQueryCalls;
+            return {
+              queryCallsUsed: request.queryCallsUsed,
+              submitted: {
+                answer: "ok",
+              },
+            };
+          },
+          async close() {},
+        };
+      },
+    };
+
+    const inspectQuestion = so.rlm(
+      so
+        .signature("inspect_query_budget")
+        .withInstructions("Inspect the prepared context and answer the question.")
+        .withInput("question", z.string(), {
+          description: "The question to answer.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "The final answer.",
+        })
+        .build(),
+      {
+        runtime,
+        model,
+        maxQueryCalls: 3,
+      },
+    );
+
+    await expect(
+      inspectQuestion({
+        question: "What is the answer?",
+      }),
+    ).resolves.toEqual({
+      answer: "ok",
+    });
+
+    expect(observedMaxQueryCalls).toBe(3);
+  });
+
+  it("does not expose non-optimizable or dead original-signature RLM candidate paths", () => {
+    const inspectCandidate = so.rlm(
+      so
+        .signature("inspect_candidate_paths")
+        .withInstructions("Inspect the context without optimizing this original instruction.")
+        .withInput("question", z.string(), {
+          description: "The question to answer.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "The answer.",
+        })
+        .build(),
+      {
+        runtime: createQueuedRuntime({
+          preparedContext: defaultPreparedContext(),
+          steps: [],
+        }),
+        model: createScriptedStructuredModel([]),
+      },
+    );
+
+    expect(inspectCandidate.inspectTextCandidate()).toEqual({});
+  });
+
+  it("exposes only RLM candidate paths that feed act or extract prompts", () => {
+    const inspectCandidate = so.rlm(
+      so
+        .signature("inspect_live_candidate_paths")
+        .withInstructions("Optimize this original instruction through rendered RLM prompts.", {
+          optimize: true,
+        })
+        .withInput("question", z.string(), {
+          description: "The question to answer.",
+          optimize: true,
+        })
+        .withOutput("answer", z.string(), {
+          description: "The answer.",
+          optimize: true,
+        })
+        .build(),
+      {
+        runtime: createQueuedRuntime({
+          preparedContext: defaultPreparedContext(),
+          steps: [],
+        }),
+        model: createScriptedStructuredModel([]),
+      },
+    ).withCandidate({
+      "inspect_live_candidate_paths.instructions": "Dead original path.",
+      "inspect_live_candidate_paths_act.instructions": "Live act path.",
+    });
+
+    expect(inspectCandidate.inspectTextCandidate()).toEqual({
+      "inspect_live_candidate_paths_act.instructions": "Live act path.",
+      "inspect_live_candidate_paths_extract.instructions": [
+        "Produce the final structured output from the prepared context summary and prior RLM trajectory.",
+        "Optimize this original instruction through rendered RLM prompts.",
+      ].join("\n\n"),
+      "inspect_live_candidate_paths_extract.output.answer.description": "The answer.",
+    });
   });
 });
 

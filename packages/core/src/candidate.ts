@@ -76,14 +76,6 @@ export function output<
   } as Field<TOptional extends true ? T | undefined : T, TSchema>;
 }
 
-export function inputField<TField extends Field<any, any>>(field: TField): TField {
-  return field;
-}
-
-export function outputField<TField extends Field<any, any>>(field: TField): TField {
-  return field;
-}
-
 function createSignatureObject<TInput extends FieldRecord, TOutput extends FieldRecord>(
   value: Omit<Signature<TInput, TOutput>, "kind">,
 ): Signature<TInput, TOutput> {

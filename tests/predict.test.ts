@@ -83,4 +83,44 @@ describe("predict()", () => {
     expect(traces?.[0]?.components[0]?.componentKind).toBe("predict");
     expect(traces?.[0]?.modelCalls[0]?.outputJsonSchema).toBeTruthy();
   });
+
+  it("parses XML fallback booleans as booleans and escapes output field names", async () => {
+    so.configure({
+      model: {
+        id: "xml-fallback-model",
+        async structured() {
+          throw new Error("structured generation unavailable");
+        },
+        async complete() {
+          return {
+            text: "<needsXhuman>false</needsXhuman>\n<needs.human>true</needs.human>",
+          };
+        },
+      },
+      traceStore: so.stores.memory(),
+      artifactStore: so.stores.memory(),
+    });
+
+    const CheckEscapedField = so
+      .signature("check_escaped_field")
+      .withInstructions("Return whether the case needs a human.")
+      .withOutput("needs.human", z.boolean(), {
+        description: "Whether this case needs a human.",
+      })
+      .build();
+
+    const checkEscapedField = so.predict<Record<string, never>, { "needs.human": boolean }>(
+      CheckEscapedField,
+      {
+        adapter: so.adapters.xml(),
+      },
+    );
+
+    const result = await checkEscapedField({});
+
+    expect(result).toEqual({
+      "needs.human": true,
+    });
+    expect(typeof result["needs.human"]).toBe("boolean");
+  });
 });

@@ -436,7 +436,7 @@ The package import path already names the system.
 Inside `@superobjective/cloudflare/hosts`, export:
 
 ```ts
-import { AgentHost, ThinkHost, McpHost } from "@superobjective/cloudflare/hosts";
+import { RpcHost, HostedAgentRouteHost, HostedMcpRouteHost } from "@superobjective/cloudflare/hosts";
 ```
 
 No prefix needed because the module path is already specific.
@@ -2485,9 +2485,6 @@ Hosts:
   RpcHost
   HostedAgentRouteHost
   HostedMcpRouteHost
-  AgentHost (deprecated alias)
-  ThinkHost (deprecated alias)
-  McpHost (deprecated alias)
 ```
 
 ---

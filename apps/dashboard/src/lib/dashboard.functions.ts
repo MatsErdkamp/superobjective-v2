@@ -25,30 +25,8 @@ const dashboardActionInput = z.object({
   body: z.string().min(1),
 });
 
-const playgroundActionInput = z.object({
-  agentName: z.string().min(1),
-  sessionId: z.string().min(1),
-  subject: z.string().min(1),
-  body: z.string().min(1),
-});
-
-const dashboardQueryInput = z
-  .object({
-    limit: z.number().int().min(1).max(100).optional(),
-    blobLimit: z.number().int().min(1).max(100).optional(),
-    targetKind: z.string().min(1).optional(),
-    targetId: z.string().min(1).optional(),
-    prefix: z.string().optional(),
-  })
-  .optional()
-  .transform((value) => value ?? {});
-
 const traceDetailInput = z.object({
   runId: z.string().min(1),
-});
-
-const artifactDetailInput = z.object({
-  artifactId: z.string().min(1),
 });
 
 type DashboardActionInput = z.infer<typeof dashboardActionInput>;
@@ -172,46 +150,10 @@ export type DashboardActionResult = {
   snapshot: DashboardSnapshot;
 };
 
-export type DashboardPlaygroundResult = {
-  requestPath: string;
-  status: number;
-  ok: boolean;
-  traceId?: string;
-  payload: JsonValue;
-};
-
-export type DashboardProjectGraphResponse = {
-  ok: boolean;
-  generatedAt: string;
-  project: DashboardSnapshot["project"];
-};
-
-export type DashboardTracesResponse = {
-  ok: boolean;
-  traces: DashboardSnapshot["traces"];
-};
-
 export type DashboardTraceResponse = {
   ok: boolean;
   trace: JsonValue;
   summary: DashboardSnapshot["traces"][number];
-};
-
-export type DashboardArtifactsResponse = {
-  ok: boolean;
-  artifacts: DashboardSnapshot["artifacts"];
-  optimizationJobs: DashboardSnapshot["optimizationJobs"];
-};
-
-export type DashboardArtifactResponse = {
-  ok: boolean;
-  artifact: JsonValue;
-  summary: DashboardSnapshot["artifacts"][number];
-  activeForTarget: boolean;
-};
-
-export type DashboardBlobsResponse = DashboardSnapshot["blobs"] & {
-  ok: boolean;
 };
 
 async function getRuntimeBinding(): Promise<RuntimeServiceBinding> {
@@ -334,42 +276,12 @@ export const getDashboardSnapshot = createServerFn({ method: "GET" }).handler(as
   return fetchDashboardJson<DashboardSnapshot>("/dashboard/summary");
 });
 
-export const getDashboardProjectGraph = createServerFn({ method: "GET" }).handler(async () => {
-  return fetchDashboardJson<DashboardProjectGraphResponse>("/dashboard/project");
-});
-
-export const getDashboardTraces = createServerFn({ method: "GET" })
-  .inputValidator(dashboardQueryInput)
-  .handler(async ({ data }) => {
-    return fetchDashboardJson<DashboardTracesResponse>("/dashboard/traces", data);
-  });
-
 export const getDashboardTrace = createServerFn({ method: "GET" })
   .inputValidator(traceDetailInput)
   .handler(async ({ data }) => {
     return fetchDashboardJson<DashboardTraceResponse>(
       `/dashboard/traces/${encodeURIComponent(data.runId)}`,
     );
-  });
-
-export const getDashboardArtifacts = createServerFn({ method: "GET" })
-  .inputValidator(dashboardQueryInput)
-  .handler(async ({ data }) => {
-    return fetchDashboardJson<DashboardArtifactsResponse>("/dashboard/artifacts", data);
-  });
-
-export const getDashboardArtifact = createServerFn({ method: "GET" })
-  .inputValidator(artifactDetailInput)
-  .handler(async ({ data }) => {
-    return fetchDashboardJson<DashboardArtifactResponse>(
-      `/dashboard/artifacts/${encodeURIComponent(data.artifactId)}`,
-    );
-  });
-
-export const getDashboardBlobs = createServerFn({ method: "GET" })
-  .inputValidator(dashboardQueryInput)
-  .handler(async ({ data }) => {
-    return fetchDashboardJson<DashboardBlobsResponse>("/dashboard/blobs", data);
   });
 
 export const runDashboardAction = createServerFn({ method: "POST" })
@@ -392,32 +304,4 @@ export const runDashboardAction = createServerFn({ method: "POST" })
       payload: result.payload,
       snapshot: await fetchDashboardJson<DashboardSnapshot>("/dashboard/summary"),
     } satisfies DashboardActionResult;
-  });
-
-export const runPlaygroundAgentTurn = createServerFn({ method: "POST" })
-  .inputValidator(playgroundActionInput)
-  .handler(async ({ data }) => {
-    const result = await invokeRuntime(
-      `/agents/${encodeURIComponent(data.agentName)}/${encodeURIComponent(data.sessionId)}`,
-      {
-        input: {
-          subject: data.subject.trim(),
-          body: data.body.trim(),
-        },
-      },
-    );
-    const payloadRecord =
-      result.payload != null &&
-      typeof result.payload === "object" &&
-      "ok" in (result.payload as Record<string, unknown>)
-        ? (result.payload as Record<string, unknown>)
-        : null;
-
-    return {
-      requestPath: `/agents/${encodeURIComponent(data.agentName)}/${encodeURIComponent(data.sessionId)}`,
-      status: result.status,
-      ok: payloadRecord?.ok === true || result.status < 400,
-      traceId: typeof payloadRecord?.traceId === "string" ? payloadRecord.traceId : undefined,
-      payload: result.payload,
-    } satisfies DashboardPlaygroundResult;
   });
