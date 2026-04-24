@@ -18,3 +18,4 @@ apps/*/dist
 apps/*/node_modules
 tests/node_modules
 benchmarks/longcot/results
+env.d.ts
