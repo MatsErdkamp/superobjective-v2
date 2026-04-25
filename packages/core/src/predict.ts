@@ -5,6 +5,7 @@ import type {
   ModelProvider,
   PredictModule,
   PromptInspection,
+  RunResult,
   RunOptions,
   RuntimeContext,
   Signature,
@@ -27,10 +28,11 @@ import {
   signatureToInputZodSchema,
 } from "./schema.js";
 import { getRuntimeContext } from "./runtime.js";
-import { chooseArtifactCandidate, describeModelHandle } from "./utils.js";
+import { chooseArtifactCandidate, createId, describeModelHandle } from "./utils.js";
 
 type PredictInternalOptions = RunOptions & {
   __execution?: ExecutionState;
+  __parentSpanId?: string;
 };
 
 type PredictState = {
@@ -61,6 +63,9 @@ export function predict<
       id: state.id,
       signature: state.signature,
       adapter: state.adapter,
+      runWithTrace(input: TInput, runOptions?: RunOptions): Promise<RunResult<TOutput>> {
+        return executePredictWithTrace(state, input, runOptions);
+      },
       inspectTextCandidate() {
         return mergeWithSeedCandidate(
           state.signature,
@@ -115,6 +120,15 @@ async function executePredict<TInput, TOutput>(
   input: TInput,
   options?: RunOptions,
 ): Promise<TOutput> {
+  const result = await executePredictWithTrace<TInput, TOutput>(state, input, options);
+  return result.output;
+}
+
+async function executePredictWithTrace<TInput, TOutput>(
+  state: PredictState,
+  input: TInput,
+  options?: RunOptions,
+): Promise<RunResult<TOutput>> {
   const internalOptions = options as PredictInternalOptions | undefined;
   const runtime = resolveRuntime(state, options);
   const execution =
@@ -131,6 +145,7 @@ async function executePredict<TInput, TOutput>(
     componentId: state.id,
     componentKind: "predict",
     input,
+    ...(internalOptions?.__parentSpanId ? { parentSpanId: internalOptions.__parentSpanId } : {}),
   });
 
   try {
@@ -177,6 +192,8 @@ async function executePredict<TInput, TOutput>(
       });
       structuredObject = result.object;
       recordModelCall(execution, {
+        spanId: createId("span"),
+        ...(component.spanId ? { parentSpanId: component.spanId } : {}),
         ...describeModelHandle(model),
         messages: rendered.messages,
         outputJsonSchema: rendered.output.jsonSchema,
@@ -203,11 +220,11 @@ async function executePredict<TInput, TOutput>(
     const output = rendered.output.zodSchema.parse(parsedStructured) as TOutput;
     finishComponent(component, output);
 
-    if (!internalOptions?.__execution) {
-      await finalizeExecution(execution, { output });
-    }
+    const trace = internalOptions?.__execution
+      ? execution.trace
+      : await finalizeExecution(execution, { output });
 
-    return output;
+    return { output, trace };
   } catch (error) {
     failComponent(component, error);
     if (!internalOptions?.__execution) {

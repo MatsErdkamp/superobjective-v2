@@ -187,6 +187,9 @@ importers:
       '@superobjective/hosting':
         specifier: workspace:*
         version: link:../hosting
+      '@superobjective/streams':
+        specifier: workspace:*
+        version: link:../streams
       acorn:
         specifier: ^8.15.0
         version: 8.16.0
@@ -228,6 +231,8 @@ importers:
         version: 4.3.6
 
   packages/optimizer-gepa: {}
+
+  packages/streams: {}
 
 packages:
 

@@ -17,8 +17,10 @@ The default target module is [solve_longcot_question](/Users/matserdkamp/Documen
 - A running Superobjective worker, either:
   - local `wrangler dev`
   - or a deployed worker with `SUPEROBJECTIVE_LIVE_BASE_URL` set
+- For `--backend dspy-rlm`: Deno for DSPy's default Pyodide sandbox, plus `LONGCOT_DSPY_MODEL` or `--dspy-model`
+  - The runner will use `deno` from `PATH`, `LONGCOT_DENO_BIN`, or `~/.deno/bin/deno`.
 
-The runner installs the official benchmark package on demand through `uv`.
+The runner installs the official benchmark package and DSPy on demand through `uv`.
 
 ## Quick start
 
@@ -66,6 +68,27 @@ uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py \
   --base-url http://127.0.0.1:8787
 ```
 
+Run the same selection through local DSPy.RLM:
+
+```bash
+LONGCOT_DSPY_MODEL="openai/gpt-5" \
+uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py \
+  --backend dspy-rlm \
+  --difficulty longcot-mini \
+  --domain logic \
+  --max-questions 1
+```
+
+Compare Superobjective RLM and DSPy.RLM on the same questions:
+
+```bash
+LONGCOT_DSPY_MODEL="openai/gpt-5" \
+uv run --python 3.12 benchmarks/longcot/run_longcot_benchmark.py \
+  --backend both \
+  --difficulty longcot-mini \
+  --base-url "$SUPEROBJECTIVE_LIVE_BASE_URL"
+```
+
 ## Output
 
 Each run writes:
@@ -80,10 +103,13 @@ Each JSONL row includes the official fields:
 - `difficulty`
 - `successful`
 - `response_text`
+- `backend`
+- `model`
 
 and extra metadata such as:
 
 - `trace_id`
+- `trajectory_path`
 - `http_status`
 - `latency_s`
 - `correct`

@@ -1312,12 +1312,16 @@ export async function handleKernelRequest(args: {
       steps = deriveRlmStepsFromTrace(trace);
     }
 
+    const includeTrace = url.searchParams.get("includeTrace") === "1";
+    const trace = includeTrace ? await args.persistence.loadTrace(segments[2]) : null;
+
     return jsonResponse(
       200,
       {
         ok: true,
         run,
         steps,
+        ...(trace != null ? { trace } : {}),
       },
       args.warnings,
     );
@@ -1390,7 +1394,6 @@ export async function handleKernelRequest(args: {
       sessionKind?: string;
       trace: RunTraceLike;
     }) => {
-      await args.persistence.saveTrace(checkpoint.trace);
       await persistRlmTrace({
         persistence: args.persistence,
         trace: checkpoint.trace,

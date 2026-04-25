@@ -5,6 +5,7 @@ import {
   extractSignatureTextCandidate,
   input,
   mergeCandidates,
+  optimizableTextAt,
   output,
   resolveTextParam,
   signature,
@@ -213,4 +214,12 @@ export function outputSchemaSummary(schema: JsonSchema): string {
   return stableStringify(schema);
 }
 
-export { text, input, output, signature, extractSignatureTextCandidate, resolveTextParam };
+export {
+  text,
+  input,
+  output,
+  signature,
+  extractSignatureTextCandidate,
+  optimizableTextAt,
+  resolveTextParam,
+};

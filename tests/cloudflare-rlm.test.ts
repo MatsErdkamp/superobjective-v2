@@ -341,8 +341,16 @@ function createHostedSessionManager(config?: {
           state.failureConsumed = false;
         },
         async describe() {
+          const entries = Object.keys(state.globals)
+            .sort((left, right) => left.localeCompare(right))
+            .map((name) => {
+              const value = state.globals[name];
+              const type = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+              return `- ${name}: ${type}`;
+            });
           return {
             trackedNames: state.trackedNames,
+            runtimeState: entries.length === 0 ? "No persisted runtime values yet." : entries.join("\n"),
           };
         },
         async step({ compiled, request }) {
@@ -373,17 +381,11 @@ function createHostedSessionManager(config?: {
             "const inputs = globalThis.__rlmInputs;",
             "const SUBMIT = async (value) => { __submitted = value; return value; };",
             "const print = (...args) => globalThis.__rlmLogs.push(args.map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join(' '));",
+            "const inspect_runtime = () => Object.keys(__globals).sort((left, right) => left.localeCompare(right)).map((name) => ({ name, type: Array.isArray(__globals[name]) ? 'array' : typeof __globals[name] }));",
             "const console = { log: (...args) => print(...args), warn: (...args) => print(...args), error: (...args) => print(...args) };",
-            "const getInput = async (key) => key == null ? inputs : inputs[key];",
-            "const getManifest = async () => null;",
-            "const listResources = async () => [];",
-            "const query = async () => { throw new Error('query not configured in test'); };",
-            "const llm_query = async (...args) => query(...args);",
-            "const queryBatch = async () => { throw new Error('queryBatch not configured in test'); };",
-            "const llm_query_batched = async (...args) => queryBatch(...args);",
-            "const readText = async () => { throw new Error('readText not configured in test'); };",
-            "const searchText = async () => { throw new Error('searchText not configured in test'); };",
-            "const readMatchWindow = async () => { throw new Error('readMatchWindow not configured in test'); };",
+            "const rlm = { query: async () => { throw new Error('query not configured in test'); }, queryBatch: async () => { throw new Error('queryBatch not configured in test'); } };",
+            "const resources = { manifest: async () => null, list: async () => [], input: async (key) => key == null ? inputs : inputs[key], info: async () => { throw new Error('info not configured in test'); }, readText: async () => { throw new Error('readText not configured in test'); }, searchText: async () => { throw new Error('searchText not configured in test'); }, readMatchWindow: async () => { throw new Error('readMatchWindow not configured in test'); } };",
+            "const corpus = { listFiles: async () => { throw new Error('listFiles not configured in test'); }, readFile: async () => { throw new Error('readFile not configured in test'); }, search: async () => { throw new Error('search not configured in test'); } };",
             definitionPrelude,
             trackedPrelude,
             compiled.transformedCode,
@@ -445,7 +447,7 @@ describe("cloudflare RLM runtime", () => {
     expect(compiled.transformedCode).toContain("answer = helper(41);");
   });
 
-  it("exposes DSPy-style REPL primitives for inputs, print, and llm_query", async () => {
+  it("exposes DSPy-style REPL primitives plus the namespaced rlm client", async () => {
     const traces = createTraceCapture();
     const solvePrompt = so.rlm(
       so
@@ -479,7 +481,7 @@ describe("cloudflare RLM runtime", () => {
           },
           {
             reasoning: "Use the semantic alias on the bounded prompt and submit the returned answer surface.",
-            code: "const response_text = (await llm_query(`Return only the final answer surface for this prompt:\\n${inputs.prompt}`)).trim(); await SUBMIT({ response_text });",
+            code: "const response_text = (await rlm.query(`Return only the final answer surface for this prompt:\\n${inputs.prompt}`)).trim(); await SUBMIT({ response_text });",
           },
         ]),
         queryProvider: createScriptedQueryProvider(["solution = sample-answer"]),
@@ -539,11 +541,11 @@ describe("cloudflare RLM runtime", () => {
         model: createScriptedStructuredModel([
           {
             reasoning: "Use retrieval to find the likely file first.",
-            code: "let hit = (await searchCorpus('finance-records', { query: 'refund settled', maxResults: 1 })).chunks[0];",
+            code: "let hit = (await corpus.search('finance-records', { query: 'refund settled', maxResults: 1 })).chunks[0];",
           },
           {
             reasoning: "Verify the exact row in the underlying file before answering.",
-            code: "let filePath = `/corpora/finance-records/${hit.item.key}`; let match = (await searchText(filePath, 'settled')).matches[0]; let evidence = (await readMatchWindow(filePath, match, { beforeChars: 12, afterChars: 12 })).text;",
+            code: "let filePath = `/corpora/finance-records/${hit.item.key}`; let match = (await resources.searchText(filePath, 'settled')).matches[0]; let evidence = (await resources.readMatchWindow(filePath, match, { beforeChars: 12, afterChars: 12 })).text;",
           },
           {
             reasoning: "Submit the final typed output now that the row is verified.",
@@ -604,7 +606,7 @@ describe("cloudflare RLM runtime", () => {
           },
           {
             reasoning: "Reuse and overwrite the same top-level binding in the hot session.",
-            code: "const results = results.slice(1); print('step2', results.join(',')); await SUBMIT({ answer: results.join(',') });",
+            code: "print('runtime', inspect_runtime().map((entry) => entry.name).join(',')); const results = results.slice(1); print('step2', results.join(',')); await SUBMIT({ answer: results.join(',') });",
           },
         ]),
         maxIterations: 2,
@@ -635,6 +637,7 @@ describe("cloudflare RLM runtime", () => {
       resumed: false,
     });
     expect(trace?.programmable?.steps[0]?.stdout).toContain("step1 3");
+    expect(trace?.programmable?.steps[1]?.stdout).toContain("runtime results");
     expect(trace?.programmable?.steps[1]?.stdout).toContain("step2 2,3");
     expect(trace?.programmable?.steps[1]?.stdout).not.toContain("step1 3");
   });
@@ -903,11 +906,11 @@ describe("cloudflare RLM runtime", () => {
         model: createScriptedStructuredModel([
           {
             reasoning: "Search the indexed corpus first.",
-            code: "let hit = (await searchCorpus('finance-records', { query: 'refund settled', maxResults: 1 })).chunks[0];",
+            code: "let hit = (await corpus.search('finance-records', { query: 'refund settled', maxResults: 1 })).chunks[0];",
           },
           {
             reasoning: "Read the exact file and submit the answer.",
-            code: "let content = (await readCorpusFile('finance-records', hit.item.key)).content; await SUBMIT({ answer: content.includes('settled') ? 'settled' : 'unknown', evidence: content.trim() });",
+            code: "let content = (await corpus.readFile('finance-records', hit.item.key)).content; await SUBMIT({ answer: content.includes('settled') ? 'settled' : 'unknown', evidence: content.trim() });",
           },
         ]),
         maxIterations: 3,

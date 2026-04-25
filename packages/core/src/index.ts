@@ -4,6 +4,7 @@ export {
   input,
   output,
   signature,
+  optimizableTextAt,
   extractSignatureTextCandidate,
   signatureToInputJsonSchema,
   signatureToInputZodSchema,
@@ -100,6 +101,7 @@ export type {
   RLMSession,
   RpcSurface,
   RunOptions,
+  RunResult,
   RunTrace,
   RuntimeContext,
   Score,
@@ -121,6 +123,7 @@ export type {
   ToolDefinition,
   ToolExecutionMode,
   TraceRedactor,
+  TraceableModule,
   TraceStore,
 } from "./types.js";
 export type {
@@ -160,7 +163,14 @@ import {
   optimizers,
   runtime,
 } from "./runtime.js";
-import { input, output, signature, text } from "./schema.js";
+import {
+  extractSignatureTextCandidate,
+  input,
+  optimizableTextAt,
+  output,
+  signature,
+  text,
+} from "./schema.js";
 import { stores } from "./stores.js";
 
 export const so = {
@@ -168,6 +178,8 @@ export const so = {
   input,
   output,
   signature,
+  optimizableTextAt,
+  extractSignatureTextCandidate,
   predict,
   program,
   rlm,

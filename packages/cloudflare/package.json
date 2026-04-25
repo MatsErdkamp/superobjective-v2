@@ -16,6 +16,10 @@
       "types": "./src/state-agent.ts",
       "default": "./src/state-agent.ts"
     },
+    "./streams": {
+      "types": "./src/streams.ts",
+      "default": "./src/streams.ts"
+    },
     "./hosts": {
       "types": "./src/hosts/index.ts",
       "default": "./src/hosts/index.ts"
@@ -26,6 +30,7 @@
     "@cloudflare/think": "^0.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@superobjective/hosting": "workspace:*",
+    "@superobjective/streams": "workspace:*",
     "acorn": "^8.15.0",
     "agents": "^0.11.4",
     "ai": "^6.0.168",

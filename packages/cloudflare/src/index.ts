@@ -24,6 +24,14 @@ export {
   RpcHost,
   createCloudflareWorker,
 } from "./worker";
+export {
+  StreamDurableObject,
+  type StreamAppendInput,
+  type StreamAppendResult,
+  type StreamEventEnvelope,
+  type StreamHistoryQuery,
+  type StreamReducedState,
+} from "./streams";
 
 export type {
   AgentLike,
@@ -46,6 +54,7 @@ export type {
   CreateCloudflareWorkerOptions,
   DevelopmentHintsLike,
   DevelopmentMode,
+  HostingAuthLike,
   JsonSchema,
   McpSurfaceLike,
   ModelCallTraceLike,

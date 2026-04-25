@@ -1,4 +1,6 @@
 export { DEFAULT_GEPA_CONFIG, GEPA_VERSION, resolveGepaConfig } from "./defaults.js";
+export { GepaBudgetExceededError, MetricBudget } from "./budget.js";
+export type { MetricBudgetPhase, MetricBudgetSnapshot } from "./budget.js";
 export {
   applyCandidatePatch,
   buildAllowedCandidatePaths,
@@ -22,6 +24,7 @@ export type {
   GepaExecutionHook,
   GepaOptimizerLike,
   GepaRunResult,
+  GepaRunWithTraceResult,
   GepaTargetLike,
   ReflectionExample,
   ReflectionModel,

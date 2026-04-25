@@ -253,4 +253,65 @@ describe.skipIf(!liveBaseUrl)("cloudflare live deployment", () => {
       ),
     ).toBe(true);
   }, 120000);
+
+  it("runs a live RLM shell workspace round trip with R2 spillover", async () => {
+    const response = await fetch(`${liveBaseUrl}/kernel/rlm/inspect_shell_workspace`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        input: {
+          message: "shell-r2-ok",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+
+    const payload = (await response.json()) as {
+      ok: boolean;
+      output: {
+        answer: string;
+        evidence: string;
+        file_count: number;
+        match_count: number;
+        r2_file_count_before_cleanup: number;
+        r2_file_count_after_cleanup: number;
+      };
+      traceId: string;
+    };
+
+    expect(payload.ok).toBe(true);
+    expect(payload.output.answer).toBe("SHELL-R2-OK");
+    expect(payload.output.evidence).toBe("shell-r2-ok");
+    expect(payload.output.file_count).toBeGreaterThanOrEqual(3);
+    expect(payload.output.match_count).toBeGreaterThanOrEqual(1);
+    expect(payload.output.r2_file_count_before_cleanup).toBeGreaterThanOrEqual(1);
+    expect(payload.output.r2_file_count_after_cleanup).toBe(0);
+
+    const traceResponse = await fetch(
+      `${liveBaseUrl}/kernel/traces/${encodeURIComponent(payload.traceId)}`,
+    );
+    expect(traceResponse.status).toBe(200);
+    const tracePayload = (await traceResponse.json()) as {
+      ok: boolean;
+      trace: {
+        programmable?: {
+          steps: Array<{
+            toolCalls?: Array<{
+              toolName: string;
+            }>;
+          }>;
+        };
+      };
+    };
+    expect(tracePayload.ok).toBe(true);
+    const toolNames = (tracePayload.trace.programmable?.steps ?? []).flatMap((step) =>
+      (step.toolCalls ?? []).map((toolCall) => toolCall.toolName),
+    );
+    expect(toolNames).toContain("rlm.state.writeText");
+    expect(toolNames).toContain("rlm.state.readText");
+    expect(toolNames).toContain("rlm.state.info");
+  }, 120000);
 });

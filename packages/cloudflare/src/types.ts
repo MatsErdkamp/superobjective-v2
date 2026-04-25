@@ -17,6 +17,7 @@ import type {
   CorpusStorageDescriptorLike as HostingCorpusStorageDescriptorLike,
   CorpusWorkspaceLike as HostingCorpusWorkspaceLike,
   ExecutionContextLike as HostingExecutionContextLike,
+  HostingAuthLike as HostingHostingAuthLike,
   JsonSchema as HostingJsonSchema,
   LoggerLike as HostingLoggerLike,
   McpSurfaceLike as HostingMcpSurfaceLike,
@@ -124,13 +125,15 @@ export type AISearchNamespaceLike = {
 export type CloudflareEnvLike = Record<string, unknown> & {
   AI?: WorkersAIBindingLike;
   SO_ARTIFACTS?: R2BucketLike;
+  SO_RLM_WORKSPACE?: R2BucketLike;
   SO_DATA?: R2BucketLike;
   AI_SEARCH?: AISearchNamespaceLike;
   LOADER?: unknown;
   SO_KERNEL?: unknown;
   SO_AGENT?: unknown;
+  SO_RPC?: unknown;
   SO_MCP?: unknown;
-  SO_THINK?: unknown;
+  SO_STREAM?: unknown;
   SO_APP_STATE?: unknown;
 };
 
@@ -168,6 +171,7 @@ export type StructuredGenerationBridgeLike =
 export type ModelHandleLike = HostingModelHandleLike<CloudflareEnvLike>;
 export type LoggerLike = HostingLoggerLike;
 export type RuntimeContextLike = HostingRuntimeContextLike<CloudflareEnvLike>;
+export type HostingAuthLike = HostingHostingAuthLike<CloudflareEnvLike>;
 export type SignatureFieldLike = HostingSignatureFieldLike;
 export type SignatureLike = HostingSignatureLike;
 export type CallableTargetLike<TInput = unknown, TOutput = unknown> = HostingCallableTargetLike<
@@ -203,6 +207,9 @@ export type DevelopmentHintsLike = {
 export type CreateCloudflareWorkerOptions = {
   project: ProjectLike;
   runtime?: RuntimeContextLike;
+  hosting?: {
+    auth?: HostingAuthLike;
+  };
   cloudflare?: {
     development?: DevelopmentHintsLike;
   };

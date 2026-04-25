@@ -37,7 +37,7 @@ export function validateCandidatePatch(args: {
   const changedPaths: string[] = [];
 
   for (const [path, nextValue] of Object.entries(candidatePatch)) {
-    if (!config.mutation.allowNewPaths && !allowedPathSet.has(path)) {
+    if (!allowedPathSet.has(path)) {
       issues.push({
         code: "unknown_path",
         path,

@@ -84,6 +84,38 @@ describe("predict()", () => {
     expect(traces?.[0]?.modelCalls[0]?.outputJsonSchema).toBeTruthy();
   });
 
+  it("returns output and trace from runWithTrace", async () => {
+    so.configure({
+      model: mockModel([
+        {
+          answer: "ok",
+        },
+      ]),
+      traceStore: so.stores.memory(),
+      artifactStore: so.stores.memory(),
+    });
+
+    const Answer = so
+      .signature("answer_with_trace")
+      .withInstructions("Answer briefly.")
+      .withOutput("answer", z.string(), {
+        description: "The answer.",
+      })
+      .build();
+
+    const answer = so.predict<Record<string, never>, { answer: string }>(Answer);
+    const result = await answer.runWithTrace({});
+
+    expect(result.output).toEqual({
+      answer: "ok",
+    });
+    expect(result.trace.targetKind).toBe("predict");
+    expect(result.trace.output).toEqual(result.output);
+    expect(result.trace.components[0]?.spanId).toBeTruthy();
+    expect(result.trace.modelCalls[0]?.spanId).toBeTruthy();
+    expect(result.trace.modelCalls[0]?.parentSpanId).toBe(result.trace.components[0]?.spanId);
+  });
+
   it("parses XML fallback booleans as booleans and escapes output field names", async () => {
     so.configure({
       model: {

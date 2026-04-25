@@ -22,7 +22,7 @@ import {
   createExecutionPlan,
   resolveBoundInput,
 } from "./bindings.js";
-import { mergeCandidates } from "./candidate.js";
+import { mergeCandidates, optimizableTextAt } from "./candidate.js";
 import { text } from "./schema.js";
 import { signatureToInputZodSchema, signatureToOutputZodSchema } from "./schema.js";
 import { chooseArtifactCandidate } from "./utils.js";
@@ -63,49 +63,53 @@ function buildCustomTool<TInput, TOutput>(value: ToolDefinition<TInput, TOutput>
   const build = (attached: {
     candidate?: TextCandidate;
     artifact?: CompiledArtifact;
-  }): Tool<TInput, TOutput> => ({
-    kind: "tool",
-    id: value.name,
-    name: value.name,
-    description: value.description,
-    inputSchema: value.input,
-    ...(value.output ? { outputSchema: value.output } : {}),
-    async execute(input, ctx) {
-      return value.execute(input, ctx);
-    },
-    inspectExecutionPlan(): ExecutionPlanTrace {
-      return {
-        selected: "direct",
-        explicit: true,
-        reasons: ["custom tool executes directly"],
-        dependencyGraph: {
-          fields: Object.keys(getSchemaShape(value.input) ?? {}).map((field) => ({
-            field,
-            source: `arg:${field}`,
-          })),
-        },
-      };
-    },
-    inspectTextCandidate() {
-      return mergeCandidates(
-        optimizedTextCandidate(`tool.${value.name}.description`, value.description),
-        chooseArtifactCandidate(attached.artifact),
-        attached.candidate,
-      );
-    },
-    withCandidate(candidate) {
-      return build({
-        ...attached,
-        candidate: mergeCandidates(attached.candidate, candidate),
-      });
-    },
-    withArtifact(artifact) {
-      return build({
-        ...attached,
-        artifact,
-      });
-    },
-  });
+  }): Tool<TInput, TOutput> => {
+    const description = text(value.description);
+
+    return {
+      kind: "tool",
+      id: value.name,
+      name: value.name,
+      description,
+      inputSchema: value.input,
+      ...(value.output ? { outputSchema: value.output } : {}),
+      async execute(input, ctx) {
+        return value.execute(input, ctx);
+      },
+      inspectExecutionPlan(): ExecutionPlanTrace {
+        return {
+          selected: "direct",
+          explicit: true,
+          reasons: ["custom tool executes directly"],
+          dependencyGraph: {
+            fields: Object.keys(getSchemaShape(value.input) ?? {}).map((field) => ({
+              field,
+              source: `arg:${field}`,
+            })),
+          },
+        };
+      },
+      inspectTextCandidate() {
+        return mergeCandidates(
+          optimizableTextAt(`tool.${value.name}.description`, description),
+          chooseArtifactCandidate(attached.artifact),
+          attached.candidate,
+        );
+      },
+      withCandidate(candidate) {
+        return build({
+          ...attached,
+          candidate: mergeCandidates(attached.candidate, candidate),
+        });
+      },
+      withArtifact(artifact) {
+        return build({
+          ...attached,
+          artifact,
+        });
+      },
+    };
+  };
 
   return build({});
 }
@@ -122,7 +126,7 @@ function buildModuleTool<TInput extends Record<string, unknown>, TOutput>(
   }): Tool<TInput, TOutput> => {
     const baseName = getModuleName(state.module);
     const name = state.binding?.name ?? baseName;
-    const description = state.binding?.description ?? getModuleDescription(state.module);
+    const description = text(state.binding?.description ?? getModuleDescription(state.module));
     const moduleInputSchema = getModuleInputSchema(state.module);
     const inputSchema =
       (buildBoundInputSchema(moduleInputSchema, state.binding) as z.ZodType<TInput> | undefined) ??
@@ -159,7 +163,7 @@ function buildModuleTool<TInput extends Record<string, unknown>, TOutput>(
       inspectTextCandidate() {
         return mergeCandidates(
           state.module.inspectTextCandidate(),
-          optimizedTextCandidate(`tool.${name}.description`, description),
+          optimizableTextAt(`tool.${name}.description`, description),
           chooseArtifactCandidate(state.artifact),
           state.candidate,
         );
@@ -202,16 +206,17 @@ export function agent(value: {
   tools?: Array<PredictModule<any, any> | Program<any, any> | Tool<any, any> | RLMModule<any, any>>;
   metadata?: Record<string, unknown>;
 }): Agent {
+  const system = text(value.system);
   const build = (attached: { candidate?: TextCandidate; artifact?: CompiledArtifact }): Agent => ({
     kind: "agent",
     name: value.name,
-    system: value.system,
+    system,
     chat: value.chat,
     tools: value.tools ?? [],
     ...(value.metadata ? { metadata: value.metadata } : {}),
     inspectTextCandidate() {
       return mergeCandidates(
-        optimizedTextCandidate(`agent.${value.name}.system`, value.system),
+        optimizableTextAt(`agent.${value.name}.system`, system),
         value.chat.inspectTextCandidate(),
         ...(value.tools ?? []).map((entry) => inspectToolLikeCandidate(entry)),
         chooseArtifactCandidate(attached.artifact),
@@ -432,10 +437,6 @@ function inspectToolLikeCandidate(
   value: PredictModule<any, any> | Program<any, any> | Tool<any, any> | RLMModule<any, any>,
 ): TextCandidate {
   return value.inspectTextCandidate();
-}
-
-function optimizedTextCandidate(path: string, value: TextParam): TextCandidate {
-  return value.optimize ? { [path]: value.value } : {};
 }
 
 function assertUniqueNames(values: string[], label: string): void {

@@ -4,6 +4,7 @@ import {
   extractTextCandidate,
   hashTextCandidate,
 } from "./candidate.js";
+import { MetricBudget } from "./budget.js";
 import { GEPA_VERSION, resolveGepaConfig } from "./defaults.js";
 import { evaluateCandidate, selectReflectionExamples } from "./evaluate.js";
 import { validateCandidatePatch } from "./patch.js";
@@ -62,14 +63,14 @@ export class GepaOptimizer implements GepaOptimizerLike {
     const seedCandidate = extractTextCandidate(args.target);
     const nodes = new Map<string, FrontierNode<TInput, TPrediction, TExpected>>();
     const expandedNodes = new Set<string>();
+    const metricBudget = new MetricBudget(this.config.maxMetricCalls);
     let consecutiveRejectedMutations = 0;
-    let metricCallsUsed = 0;
     let batchCursor = 0;
 
     const seedBatch = selectEvaluationBatch(
       args.trainset,
       batchCursor,
-      this.config.reflectionBatchSize,
+      Math.min(this.config.reflectionBatchSize, metricBudget.remainingMetricCalls),
     );
     batchCursor = advanceCursor(batchCursor, seedBatch.length, args.trainset.length);
 
@@ -80,11 +81,11 @@ export class GepaOptimizer implements GepaOptimizerLike {
       metric: args.metric,
       dataset: "train",
       config: this.config,
+      budget: metricBudget,
+      budgetPhase: "seed",
       ...(args.execute ? { execute: args.execute } : {}),
       ...(args.signal ? { signal: args.signal } : {}),
     });
-
-    metricCallsUsed += seedBatch.length;
 
     const seedNode: FrontierNode<TInput, TPrediction, TExpected> = {
       id: seedEvaluation.candidateId,
@@ -96,7 +97,7 @@ export class GepaOptimizer implements GepaOptimizerLike {
     };
     nodes.set(seedNode.id, seedNode);
 
-    while (metricCallsUsed < this.config.maxMetricCalls) {
+    while (!metricBudget.exhausted) {
       assertNotAborted(args.signal);
 
       const baseNode = selectBaseNode(nodes, expandedNodes, this.config);
@@ -154,8 +155,7 @@ export class GepaOptimizer implements GepaOptimizerLike {
         continue;
       }
 
-      const remainingBudget = this.config.maxMetricCalls - metricCallsUsed;
-      const batchSize = Math.min(this.config.reflectionBatchSize, remainingBudget);
+      const batchSize = Math.min(this.config.reflectionBatchSize, metricBudget.remainingMetricCalls);
       if (batchSize <= 0) {
         break;
       }
@@ -170,11 +170,11 @@ export class GepaOptimizer implements GepaOptimizerLike {
         metric: args.metric,
         dataset: "train",
         config: this.config,
+        budget: metricBudget,
+        budgetPhase: "candidate",
         ...(args.execute ? { execute: args.execute } : {}),
         ...(args.signal ? { signal: args.signal } : {}),
       });
-
-      metricCallsUsed += evaluationBatch.length;
 
       nodes.set(nextCandidateId, {
         id: nextCandidateId,
@@ -194,6 +194,10 @@ export class GepaOptimizer implements GepaOptimizerLike {
 
     const rerankedResults = [];
     for (const node of rerankCandidates) {
+      if (!metricBudget.canConsume(args.trainset.length)) {
+        break;
+      }
+
       const evaluation = await evaluateCandidate({
         target: args.target,
         candidate: node.candidate,
@@ -201,6 +205,8 @@ export class GepaOptimizer implements GepaOptimizerLike {
         metric: args.metric,
         dataset: "train",
         config: this.config,
+        budget: metricBudget,
+        budgetPhase: "final",
         ...(args.execute ? { execute: args.execute } : {}),
         ...(args.signal ? { signal: args.signal } : {}),
       });
@@ -219,23 +225,16 @@ export class GepaOptimizer implements GepaOptimizerLike {
       return right.node.evaluation.aggregateScore - left.node.evaluation.aggregateScore;
     })[0] ?? {
       node: selectBestNode(nodes),
-      evaluation: await evaluateCandidate({
-        target: args.target,
-        candidate: selectBestNode(nodes).candidate,
-        examples: args.trainset,
-        metric: args.metric,
-        dataset: "train",
-        config: this.config,
-        ...(args.execute ? { execute: args.execute } : {}),
-        ...(args.signal ? { signal: args.signal } : {}),
-      }),
+      evaluation: selectBestNode(nodes).evaluation,
     };
 
     const bestNode = bestFinalResult.node;
     const finalTrainEvaluation = bestFinalResult.evaluation;
 
     const finalValEvaluation =
-      args.valset && args.valset.length > 0
+      args.valset &&
+      args.valset.length > 0 &&
+      metricBudget.canConsume(args.valset.length)
         ? await evaluateCandidate({
             target: args.target,
             candidate: bestNode.candidate,
@@ -243,6 +242,8 @@ export class GepaOptimizer implements GepaOptimizerLike {
             metric: args.metric,
             dataset: "val",
             config: this.config,
+            budget: metricBudget,
+            budgetPhase: "validation",
             ...(args.execute ? { execute: args.execute } : {}),
             ...(args.signal ? { signal: args.signal } : {}),
           })
@@ -271,9 +272,17 @@ export class GepaOptimizer implements GepaOptimizerLike {
       frontier: buildFrontierSnapshot(nodes),
       createdAt: nowIso(),
       metadata: {
-        metricCallsUsed,
+        ...(resolveSourceJobId(args) ? { sourceJobId: resolveSourceJobId(args) } : {}),
+        metricCallsUsed: metricBudget.usedMetricCalls,
+        budget: {
+          metric: metricBudget.snapshot(),
+        },
         optimizationCandidates: nodes.size,
         rerankedCandidates: rerankCandidates.length,
+        finalRerankedCandidates: rerankedResults.length,
+        ...(args.valset && args.valset.length > 0
+          ? { validationSkippedForBudget: !finalValEvaluation }
+          : {}),
         reflectionModelConfigured: Boolean(activeReflectionModel),
         reflectionBatchSize: this.config.reflectionBatchSize,
       },
@@ -381,6 +390,29 @@ function resolveArtifactAdapter(target: {
     id: target.adapter?.id ?? "unknown",
     version: target.adapter?.version ?? "0.0.0",
   };
+}
+
+function resolveSourceJobId(args: unknown): string | undefined {
+  const compileArgs = args as {
+    sourceJobId?: unknown;
+    metadata?: {
+      sourceJobId?: unknown;
+    };
+    target?: {
+      sourceJobId?: unknown;
+      metadata?: {
+        sourceJobId?: unknown;
+      };
+    };
+  };
+  const candidates = [
+    compileArgs.sourceJobId,
+    compileArgs.metadata?.sourceJobId,
+    compileArgs.target?.sourceJobId,
+    compileArgs.target?.metadata?.sourceJobId,
+  ];
+
+  return candidates.find((candidate): candidate is string => typeof candidate === "string");
 }
 
 function buildFrontierSnapshot<TInput, TPrediction, TExpected>(

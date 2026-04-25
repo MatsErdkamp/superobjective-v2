@@ -50,6 +50,7 @@ export function startComponent(
 ): ComponentTrace {
   const component: ComponentTrace = {
     ...args,
+    spanId: args.spanId ?? createId("span"),
     startedAt: new Date().toISOString(),
     stdout: "",
   };

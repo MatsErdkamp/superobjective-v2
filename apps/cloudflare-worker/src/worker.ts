@@ -1,9 +1,10 @@
 import {
-  HostedAgentRouteHost,
-  HostedMcpRouteHost,
-  ModuleKernel,
+  HostedAgentRouteHost as BaseHostedAgentRouteHost,
+  HostedMcpRouteHost as BaseHostedMcpRouteHost,
+  ModuleKernel as BaseModuleKernel,
   RlmRuntimeHost,
-  RpcHost,
+  RpcHost as BaseRpcHost,
+  StreamDurableObject as BaseStreamDurableObject,
   cloudflare,
   createCloudflareWorker,
   type CloudflareEnvLike,
@@ -11,13 +12,13 @@ import {
   type ProjectLike,
   type RunTraceLike,
 } from "@superobjective/cloudflare";
-import { AppStateAgent } from "@superobjective/cloudflare/state-agent";
+import { AppStateAgent as BaseAppStateAgent } from "@superobjective/cloudflare/state-agent";
 import { superobjective } from "superobjective";
 
 import { project } from "./project";
 
-export const SUPEROBJECTIVE_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-export const SUPEROBJECTIVE_NAMESPACE = "superobjective-cloudflare";
+const SUPEROBJECTIVE_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const SUPEROBJECTIVE_NAMESPACE = "superobjective-cloudflare";
 
 const traceStore = cloudflare.prototypeTraceStore(SUPEROBJECTIVE_NAMESPACE);
 const artifactStore = cloudflare.prototypeArtifactStore(SUPEROBJECTIVE_NAMESPACE);
@@ -43,14 +44,14 @@ function resolveBlobStore(env?: CloudflareEnvLike) {
     : blobStore;
 }
 
-export {
-  AppStateAgent,
-  HostedAgentRouteHost,
-  HostedMcpRouteHost,
-  ModuleKernel,
-  RlmRuntimeHost,
-  RpcHost,
-};
+export class ModuleKernelSqlite extends BaseModuleKernel {}
+export class AppStateAgentSqlite extends BaseAppStateAgent {}
+export class RpcHostSqlite extends BaseRpcHost {}
+export class HostedAgentRouteHostSqlite extends BaseHostedAgentRouteHost {}
+export class HostedMcpRouteHostSqlite extends BaseHostedMcpRouteHost {}
+export class StreamDurableObjectSqlite extends BaseStreamDurableObject {}
+
+export { RlmRuntimeHost };
 
 const runtimeWorker = createCloudflareWorker({
   project: project as ProjectLike,
@@ -543,6 +544,33 @@ function summarizeTrace(trace: RunTraceLike) {
   };
 }
 
+type DashboardTraceSerialization = "safe" | "raw";
+
+function resolveTraceSerialization(url: URL): DashboardTraceSerialization {
+  return url.searchParams.get("raw") === "1" || url.searchParams.get("serialization") === "raw"
+    ? "raw"
+    : "safe";
+}
+
+function serializeTraceForDashboard(trace: RunTraceLike, mode: DashboardTraceSerialization) {
+  if (mode === "raw") {
+    return trace;
+  }
+
+  return {
+    ...trace,
+    modelCalls: trace.modelCalls.map((call) => {
+      const { rawResponse: _rawResponse, ...safeCall } = call;
+      return safeCall;
+    }),
+    metadata: {
+      ...(trace.metadata ?? {}),
+      dashboardSerialization: "safe",
+      omittedFields: ["modelCalls[].rawResponse"],
+    },
+  } satisfies RunTraceLike;
+}
+
 function summarizeArtifact(artifact: DashboardArtifact, activeArtifactIds: Set<string>) {
   return {
     id: artifact.id,
@@ -728,9 +756,11 @@ async function handleDashboardRequest(
       });
     }
 
+    const serialization = resolveTraceSerialization(url);
     return jsonResponse(200, {
       ok: true,
-      trace,
+      serialization,
+      trace: serializeTraceForDashboard(trace, serialization),
       summary: summarizeTrace(trace),
     });
   }

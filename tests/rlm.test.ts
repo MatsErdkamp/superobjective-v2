@@ -324,6 +324,136 @@ describe("RLM", () => {
     expect(observedMaxQueryCalls).toBe(3);
   });
 
+  it("caps stored RLM step observations and tool payloads", async () => {
+    const traces = createTraceCapture();
+    const longValue = "x".repeat(1_000);
+    const model = createScriptedStructuredModel([
+      {
+        reasoning: "Create noisy output.",
+        code: "print('noise');",
+      },
+      {
+        reasoning: "Submit after the noisy observation.",
+        code: "await SUBMIT({ answer: 'ok' });",
+      },
+    ]);
+
+    const inspectQuestion = so.rlm(
+      so
+        .signature("inspect_trace_caps")
+        .withInstructions("Inspect the prepared context and answer the question.")
+        .withInput("question", z.string(), {
+          description: "The question to answer.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "The final answer.",
+        })
+        .build(),
+      {
+        runtime: createQueuedRuntime({
+          preparedContext: defaultPreparedContext(),
+          steps: [
+            {
+              logs: [longValue],
+              stdout: longValue,
+              queryCallsUsed: 0,
+              toolCalls: [
+                {
+                  toolName: "rlm.query",
+                  input: {
+                    prompt: longValue,
+                  },
+                  output: {
+                    text: longValue,
+                  },
+                },
+              ],
+            },
+            {
+              queryCallsUsed: 0,
+              submitted: {
+                answer: "ok",
+              },
+            },
+          ],
+        }),
+        model,
+        maxIterations: 2,
+        maxLlmCalls: 3,
+        maxOutputChars: 120,
+      },
+    );
+
+    await inspectQuestion(
+      {
+        question: "Can large observations avoid trace bloat?",
+      },
+      {
+        runtime: {
+          traceStore: traces.store,
+        },
+      },
+    );
+
+    const step = traces.saved.at(-1)?.programmable?.steps[0];
+    expect(step?.logs[0]).toContain("characters omitted");
+    expect(step?.stdout).toContain("characters omitted");
+    expect(JSON.stringify(step)).not.toContain("x".repeat(500));
+    expect(JSON.stringify(traces.saved.at(-1)?.toolCalls)).not.toContain("x".repeat(500));
+  });
+
+  it("returns output and trace from RLM runWithTrace", async () => {
+    const model = createScriptedStructuredModel([
+      {
+        reasoning: "Submit directly.",
+        code: "await SUBMIT({ answer: 'ok' });",
+      },
+    ]);
+
+    const inspectQuestion = so.rlm(
+      so
+        .signature("inspect_run_with_trace")
+        .withInstructions("Inspect the prepared context and answer the question.")
+        .withInput("question", z.string(), {
+          description: "The question to answer.",
+        })
+        .withOutput("answer", z.string(), {
+          description: "The final answer.",
+        })
+        .build(),
+      {
+        runtime: createQueuedRuntime({
+          preparedContext: defaultPreparedContext(),
+          steps: [
+            {
+              queryCallsUsed: 0,
+              submitted: {
+                answer: "ok",
+              },
+            },
+          ],
+        }),
+        model,
+      },
+    );
+
+    const result = await inspectQuestion.runWithTrace({
+      question: "What is the answer?",
+    });
+
+    expect(result.output).toEqual({
+      answer: "ok",
+    });
+    expect(result.trace.targetKind).toBe("rlm");
+    expect(result.trace.output).toEqual(result.output);
+    expect(result.trace.components[0]?.spanId).toBeTruthy();
+    expect(
+      result.trace.components
+        .filter((component) => component.componentKind === "predict")
+        .every((component) => component.parentSpanId === result.trace.components[0]?.spanId),
+    ).toBe(true);
+  });
+
   it("does not expose non-optimizable or dead original-signature RLM candidate paths", () => {
     const inspectCandidate = so.rlm(
       so
@@ -427,6 +557,7 @@ function createQueuedRuntime(args: {
     submitted?: unknown;
     queryCallsUsed: number;
     error?: string;
+    toolCalls?: import("superobjective").ToolCallTrace[];
   }>;
 }): RLMRuntime {
   return {

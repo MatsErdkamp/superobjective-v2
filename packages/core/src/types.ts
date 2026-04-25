@@ -156,6 +156,8 @@ export type Score = {
 };
 
 export type ComponentTrace = {
+  spanId?: string;
+  parentSpanId?: string;
   componentId: string;
   componentKind: "predict" | "program" | "adapter" | "tool" | "rpc" | "mcp" | "rlm";
   startedAt: string;
@@ -179,6 +181,8 @@ export type ComponentTrace = {
 };
 
 export type ModelCallTrace = {
+  spanId?: string;
+  parentSpanId?: string;
   provider: string;
   model: string;
   messages: ModelMessage[];
@@ -191,6 +195,8 @@ export type ModelCallTrace = {
 
 export type ToolCallTrace = {
   id?: string;
+  spanId?: string;
+  parentSpanId?: string;
   toolName: string;
   input: unknown;
   output?: unknown;
@@ -219,6 +225,15 @@ export type RunTrace = {
   toolCalls: ToolCallTrace[];
   programmable?: ProgrammableTrace;
   metadata?: Record<string, unknown>;
+};
+
+export type RunResult<TOutput> = {
+  output: TOutput;
+  trace: RunTrace;
+};
+
+export type TraceableModule<TInput, TOutput> = {
+  runWithTrace(input: TInput, options?: RunOptions): Promise<RunResult<TOutput>>;
 };
 
 export type MetricContext<TInput, TPrediction, TExpected> = {
@@ -703,6 +718,11 @@ export type RLMHistoryEntry = {
   output: string;
 };
 
+export type RLMSessionDescription = {
+  trackedNames?: string[];
+  runtimeState?: string;
+};
+
 export type RLMSessionCheckpoint = {
   preparedContext: RLMPreparedContext;
   history: RLMHistoryEntry[];
@@ -717,6 +737,7 @@ export type RLMSessionCheckpoint = {
 export type RLMSession = {
   sessionKind?: string;
   prepareContext(input: Record<string, unknown>): Promise<RLMPreparedContext>;
+  describe?(): Promise<RLMSessionDescription>;
   executeStep(request: RLMExecuteStepRequest): Promise<RLMExecuteStepResult>;
   checkpoint?(value: RLMSessionCheckpoint): Promise<void>;
   resume?(): Promise<RLMSessionCheckpoint | null>;
@@ -823,6 +844,7 @@ export type PredictModule<TInput, TOutput> = {
   signature: Signature<any, any>;
   adapter: Adapter;
   (input: TInput, options?: RunOptions): Promise<TOutput>;
+  runWithTrace(input: TInput, options?: RunOptions): Promise<RunResult<TOutput>>;
   inspectTextCandidate(): TextCandidate;
   inspectPrompt(input: TInput, options?: InspectOptions): Promise<PromptInspection>;
   withCandidate(candidate: TextCandidate): PredictModule<TInput, TOutput>;
@@ -838,6 +860,7 @@ export type RLMModule<TInput, TOutput> = {
   outputSchema: z.ZodType<TOutput>;
   options: RLMOptions;
   (input: TInput, options?: RunOptions): Promise<TOutput>;
+  runWithTrace(input: TInput, options?: RunOptions): Promise<RunResult<TOutput>>;
   inspectTextCandidate(): TextCandidate;
   withCandidate(candidate: TextCandidate): RLMModule<TInput, TOutput>;
   withArtifact(artifact: CompiledArtifact): RLMModule<TInput, TOutput>;
@@ -845,6 +868,10 @@ export type RLMModule<TInput, TOutput> = {
 };
 
 export type ProgramContext = {
+  modules: Record<
+    string,
+    PredictModule<any, any> | Program<any, any> | Tool<any, any> | RLMModule<any, any>
+  >;
   call<TInput, TOutput>(
     module:
       | PredictModule<TInput, TOutput>
@@ -866,9 +893,11 @@ export type Program<TInput, TOutput> = {
   outputSchema: z.ZodType<TOutput>;
   run(ctx: ProgramContext, input: TInput): Promise<TOutput>;
   (input: TInput, options?: RunOptions): Promise<TOutput>;
+  runWithTrace(input: TInput, options?: RunOptions): Promise<RunResult<TOutput>>;
   inspectTextCandidate(): TextCandidate;
   withCandidate(candidate: TextCandidate): Program<TInput, TOutput>;
   withArtifact(artifact: CompiledArtifact): Program<TInput, TOutput>;
+  children(): ModuleChild[];
 };
 
 export type ToolContext = {

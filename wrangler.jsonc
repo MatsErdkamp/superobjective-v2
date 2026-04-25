@@ -9,6 +9,7 @@
   },
   "ai": {
     "binding": "AI",
+    "remote": true,
   },
   "r2_buckets": [
     {
@@ -20,6 +21,7 @@
     {
       "binding": "AI_SEARCH",
       "namespace": "default",
+      "remote": true,
     },
   ],
   "worker_loaders": [
@@ -31,54 +33,40 @@
     "bindings": [
       {
         "name": "SO_KERNEL",
-        "class_name": "ModuleKernel",
+        "class_name": "ModuleKernelSqlite",
       },
       {
         "name": "SO_APP_STATE",
-        "class_name": "AppStateAgent",
+        "class_name": "AppStateAgentSqlite",
+      },
+      {
+        "name": "SO_RPC",
+        "class_name": "RpcHostSqlite",
       },
       {
         "name": "SO_AGENT",
-        "class_name": "RpcHost",
+        "class_name": "HostedAgentRouteHostSqlite",
       },
       {
-        "name": "SO_THINK",
-        "class_name": "HostedAgentRouteHost",
+        "name": "SO_STREAM",
+        "class_name": "StreamDurableObjectSqlite",
       },
       {
         "name": "SO_MCP",
-        "class_name": "HostedMcpRouteHost",
+        "class_name": "HostedMcpRouteHostSqlite",
       },
     ],
   },
   "migrations": [
     {
-      "tag": "superobjective-hosts-v1",
-      "new_sqlite_classes": ["RpcHost", "HostedAgentRouteHost", "HostedMcpRouteHost"],
-    },
-    {
-      "tag": "superobjective-hosts-v2",
-      "new_sqlite_classes": ["AppStateAgent"],
-    },
-    {
-      "tag": "superobjective-kernel-v1",
-      "new_sqlite_classes": ["ModuleKernel"],
-    },
-    {
-      "tag": "superobjective-hosts-rename-v1",
-      "renamed_classes": [
-        {
-          "from": "AgentHost",
-          "to": "RpcHost",
-        },
-        {
-          "from": "ThinkHost",
-          "to": "HostedAgentRouteHost",
-        },
-        {
-          "from": "McpHost",
-          "to": "HostedMcpRouteHost",
-        },
+      "tag": "superobjective-sqlite-runtime-v2",
+      "new_sqlite_classes": [
+        "ModuleKernelSqlite",
+        "AppStateAgentSqlite",
+        "RpcHostSqlite",
+        "HostedAgentRouteHostSqlite",
+        "HostedMcpRouteHostSqlite",
+        "StreamDurableObjectSqlite",
       ],
     },
   ],

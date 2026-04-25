@@ -16,14 +16,15 @@ export function text(input: string | TextParam): TextParam {
   if (typeof input === "string") {
     return {
       value: input,
-      optimize: false,
     };
   }
 
-  return {
-    optimize: false,
-    ...input,
-  };
+  if (input.optimize === true) {
+    return { ...input };
+  }
+
+  const { optimize: _optimize, ...rest } = input;
+  return rest;
 }
 
 type FieldOptions<T> = {
@@ -47,7 +48,7 @@ export function input<
   return {
     kind: "input",
     schema,
-    description: options.description,
+    description: text(options.description),
     ...(options.optional !== undefined ? { optional: options.optional } : {}),
     ...(options.default !== undefined ? { default: options.default } : {}),
     ...(options.examples ? { examples: options.examples } : {}),
@@ -68,7 +69,7 @@ export function output<
   return {
     kind: "output",
     schema,
-    description: options.description,
+    description: text(options.description),
     ...(options.optional !== undefined ? { optional: options.optional } : {}),
     ...(options.default !== undefined ? { default: options.default } : {}),
     ...(options.examples ? { examples: options.examples } : {}),
@@ -79,11 +80,17 @@ export function output<
 function createSignatureObject<TInput extends FieldRecord, TOutput extends FieldRecord>(
   value: Omit<Signature<TInput, TOutput>, "kind">,
 ): Signature<TInput, TOutput> {
-  validateFieldDescriptions(value.name, "input", value.input);
-  validateFieldDescriptions(value.name, "output", value.output);
+  const normalizedInput = normalizeFieldRecord(value.input);
+  const normalizedOutput = normalizeFieldRecord(value.output);
+  validateFieldDescriptions(value.name, "input", normalizedInput);
+  validateFieldDescriptions(value.name, "output", normalizedOutput);
   return {
     kind: "signature",
-    ...value,
+    name: value.name,
+    instructions: text(value.instructions),
+    input: normalizedInput as TInput,
+    output: normalizedOutput as TOutput,
+    ...(value.metadata ? { metadata: value.metadata } : {}),
   };
 }
 
@@ -268,6 +275,18 @@ export function mergeCandidates(...candidates: Array<TextCandidate | undefined>)
   return Object.assign({}, ...candidates.filter(Boolean));
 }
 
+export function optimizableTextAt(
+  path: string,
+  value?: string | TextParam,
+): TextCandidate {
+  if (value == null) {
+    return {};
+  }
+
+  const normalized = text(value);
+  return normalized.optimize === true ? { [path]: normalized.value } : {};
+}
+
 export function hashCandidate(candidate: TextCandidate): string {
   const source = JSON.stringify(
     Object.entries(candidate).sort(([left], [right]) => left.localeCompare(right)),
@@ -318,57 +337,64 @@ export function resolveTextParam(args: {
 
 export function extractSignatureTextCandidate(signatureValue: Signature<any, any>) {
   const candidate: TextCandidate = {};
-  if (signatureValue.instructions.optimize) {
-    candidate[signatureInstructionsPath(signatureValue)] = signatureValue.instructions.value;
-  }
+  Object.assign(
+    candidate,
+    optimizableTextAt(signatureInstructionsPath(signatureValue), signatureValue.instructions),
+  );
 
   for (const [fieldName, field] of Object.entries(
     signatureValue.input as Record<string, Field<any, any>>,
   )) {
-    if (field.description.optimize) {
-      candidate[
+    Object.assign(
+      candidate,
+      optimizableTextAt(
         signatureFieldDescriptionPath({
           signature: signatureValue,
           kind: "input",
           fieldName,
-        })
-      ] = field.description.value;
-    }
+        }),
+        field.description,
+      ),
+    );
   }
 
   for (const [fieldName, field] of Object.entries(
     signatureValue.output as Record<string, Field<any, any>>,
   )) {
-    if (field.description.optimize) {
-      candidate[
+    Object.assign(
+      candidate,
+      optimizableTextAt(
         signatureFieldDescriptionPath({
           signature: signatureValue,
           kind: "output",
           fieldName,
-        })
-      ] = field.description.value;
-    }
+        }),
+        field.description,
+      ),
+    );
   }
 
   return candidate;
 }
 
 export function extractToolTextCandidate(tool: Tool<any, any>) {
-  const candidate: TextCandidate = {};
-  if (tool.description.optimize) {
-    candidate[toolDescriptionPath(tool)] = tool.description.value;
-  }
-
-  return candidate;
+  return optimizableTextAt(toolDescriptionPath(tool), tool.description);
 }
 
 export function extractAgentTextCandidate(agent: Agent<any, any>) {
-  const candidate: TextCandidate = {};
-  if (agent.system.optimize) {
-    candidate[agentSystemPath(agent)] = agent.system.value;
-  }
+  return optimizableTextAt(agentSystemPath(agent), agent.system);
+}
 
-  return candidate;
+function normalizeFieldRecord<TFields extends FieldRecord>(fields: TFields): TFields {
+  return Object.fromEntries(
+    Object.entries(fields).map(([fieldName, field]) => [
+      fieldName,
+      {
+        ...field,
+        description: text(field.description),
+      },
+    ]),
+  ) as TFields;
 }
 
 export function stringifyValue(value: unknown): string {

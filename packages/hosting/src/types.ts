@@ -459,6 +459,32 @@ export type HostedRouteContextLike<TEnv = unknown> = {
   request: Request;
   executionContext?: ExecutionContextLike | undefined;
   warnings: string[];
+  auth?: HostingAuthResult | undefined;
+};
+
+export type HostingAuthResult = {
+  ok: boolean;
+  principalId?: string;
+  scopes?: string[];
+  reason?: string;
+  status?: 401 | 403;
+  metadata?: Record<string, unknown>;
+};
+
+export type HostingAuthContextLike<TEnv = unknown> = {
+  request: Request;
+  env?: TEnv | undefined;
+  runtime: RuntimeContextLike<TEnv>;
+  executionContext?: ExecutionContextLike | undefined;
+  route: {
+    pathname: string;
+    segments: string[];
+    surface?: string;
+  };
+};
+
+export type HostingAuthLike<TEnv = unknown> = {
+  authorize(context: HostingAuthContextLike<TEnv>): Promise<HostingAuthResult> | HostingAuthResult;
 };
 
 export type HostedRouteDispatchOptions<TEnv = unknown> = {
@@ -469,4 +495,5 @@ export type HostedRouteDispatchOptions<TEnv = unknown> = {
   project: NormalizedProjectLike<TEnv>;
   warnings: string[];
   hostPrefix?: HostedRoutePrefix;
+  auth?: HostingAuthLike<TEnv> | undefined;
 };

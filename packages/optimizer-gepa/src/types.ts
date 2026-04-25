@@ -171,6 +171,16 @@ export type RunTraceLike = {
   metadata?: Record<string, unknown>;
 };
 
+export type GepaRunWithTraceResult<TPrediction = unknown> =
+  | {
+      output: TPrediction;
+      trace: RunTraceLike;
+    }
+  | {
+      prediction: TPrediction;
+      trace: RunTraceLike;
+    };
+
 export type ScoreLike = {
   score: number;
   feedback?: string;
@@ -213,6 +223,10 @@ export type GepaTargetLike<TInput = unknown, TOutput = unknown> = ((
   id: string;
   inspectTextCandidate(): TextCandidate;
   withCandidate(candidate: TextCandidate): GepaTargetLike<TInput, TOutput>;
+  runWithTrace?(
+    input: TInput,
+    options?: unknown,
+  ): Promise<GepaRunWithTraceResult<TOutput> | TOutput>;
   adapter?: {
     id: string;
     version: string;

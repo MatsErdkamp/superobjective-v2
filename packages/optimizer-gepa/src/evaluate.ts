@@ -1,4 +1,5 @@
 import { hashTextCandidate } from "./candidate.js";
+import type { MetricBudget, MetricBudgetPhase } from "./budget.js";
 import type {
   CandidateEvaluation,
   ComponentTraceLike,
@@ -21,6 +22,8 @@ export async function evaluateCandidate<TInput, TPrediction, TExpected>(args: {
   metric: MetricLike<TInput, TPrediction, TExpected>;
   dataset: "train" | "val";
   config: ResolvedGepaConfig;
+  budget?: MetricBudget;
+  budgetPhase?: MetricBudgetPhase;
   execute?: GepaExecutionHook<TInput, TPrediction, TExpected>;
   signal?: AbortSignal;
 }): Promise<CandidateEvaluation<TInput, TPrediction, TExpected>> {
@@ -29,6 +32,7 @@ export async function evaluateCandidate<TInput, TPrediction, TExpected>(args: {
 
   for (const [index, example] of args.examples.entries()) {
     assertNotAborted(args.signal);
+    args.budget?.consume(args.budgetPhase ? { phase: args.budgetPhase } : undefined);
 
     const execution = await executeExample({
       target: args.target,
@@ -39,7 +43,7 @@ export async function evaluateCandidate<TInput, TPrediction, TExpected>(args: {
       ...(args.signal ? { signal: args.signal } : {}),
     });
 
-    const fallbackTrace =
+    const activeExecutionTrace =
       execution.trace ??
       createSyntheticTrace({
         target: args.target,
@@ -48,12 +52,12 @@ export async function evaluateCandidate<TInput, TPrediction, TExpected>(args: {
       });
 
     const collectedLogs: string[] = [];
-    const metricTarget = resolveMetricTarget(fallbackTrace, args.target);
+    const metricTarget = resolveMetricTarget(activeExecutionTrace, args.target);
     const metricResult = await args.metric.evaluate({
       example,
       prediction: execution.prediction,
       expected: example.expected,
-      trace: fallbackTrace,
+      trace: activeExecutionTrace,
       ...(metricTarget ? { target: metricTarget } : {}),
       log(message: string) {
         collectedLogs.push(message);
@@ -64,7 +68,7 @@ export async function evaluateCandidate<TInput, TPrediction, TExpected>(args: {
       throw new TypeError("Metrics used by GEPA must return a finite numeric score.");
     }
 
-    const activeTrace = metricResult.trace ?? fallbackTrace;
+    const activeTrace = metricResult.trace ?? activeExecutionTrace;
     const exampleId = example.id ?? `${args.dataset}-${index + 1}`;
     const logs = [...collectedLogs, ...(metricResult.logs ?? [])];
     const activeTarget = resolveMetricTarget(activeTrace, args.target);
@@ -152,7 +156,7 @@ async function executeExample<TInput, TPrediction, TExpected>(args: {
 
   const candidateBoundTarget = args.target.withCandidate(args.candidate);
   const traceCapture = createTraceCapture();
-  const rawResult = await candidateBoundTarget(args.example.input, {
+  const runOptions = {
     runtime: {
       traceStore: traceCapture.store,
       trace: {
@@ -166,7 +170,23 @@ async function executeExample<TInput, TPrediction, TExpected>(args: {
       ...(args.example.id ? { exampleId: args.example.id } : {}),
     },
     ...(args.signal ? { abortSignal: args.signal } : {}),
-  });
+  };
+
+  if (hasRunWithTrace(candidateBoundTarget)) {
+    const rawResult = await candidateBoundTarget.runWithTrace(args.example.input, runOptions);
+    const normalizedResult = normalizeRunWithTraceResult<TPrediction>(rawResult);
+    if (normalizedResult) {
+      return normalizedResult;
+    }
+
+    const trace = traceCapture.latest();
+    return {
+      prediction: rawResult as TPrediction,
+      ...(trace ? { trace } : {}),
+    };
+  }
+
+  const rawResult = await candidateBoundTarget(args.example.input, runOptions);
 
   if (looksLikeRunResult(rawResult)) {
     const trace = rawResult.trace ?? traceCapture.latest();
@@ -181,6 +201,14 @@ async function executeExample<TInput, TPrediction, TExpected>(args: {
     prediction: rawResult as TPrediction,
     ...(trace ? { trace } : {}),
   };
+}
+
+function hasRunWithTrace<TInput, TPrediction>(
+  target: GepaTargetLike<TInput, TPrediction>,
+): target is GepaTargetLike<TInput, TPrediction> & {
+  runWithTrace(input: TInput, options?: unknown): Promise<unknown>;
+} {
+  return typeof target.runWithTrace === "function";
 }
 
 function createTraceCapture(): {
@@ -229,6 +257,37 @@ function looksLikeRunResult(value: unknown): value is {
   trace?: RunTraceLike;
 } {
   return Boolean(value && typeof value === "object" && "output" in value && "trace" in value);
+}
+
+function normalizeRunWithTraceResult<TPrediction>(
+  value: unknown,
+):
+  | {
+      prediction: TPrediction;
+      trace?: RunTraceLike;
+    }
+  | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  if ("output" in value) {
+    const trace = "trace" in value ? (value.trace as RunTraceLike | undefined) : undefined;
+    return {
+      prediction: value.output as TPrediction,
+      ...(trace ? { trace } : {}),
+    };
+  }
+
+  if ("prediction" in value) {
+    const trace = "trace" in value ? (value.trace as RunTraceLike | undefined) : undefined;
+    return {
+      prediction: value.prediction as TPrediction,
+      ...(trace ? { trace } : {}),
+    };
+  }
+
+  return undefined;
 }
 
 function createSyntheticTrace(args: {

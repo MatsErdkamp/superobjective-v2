@@ -102,6 +102,7 @@ export type CloudflareHostedRlmSessionHandle = {
   }): Promise<void>;
   describe(): Promise<{
     trackedNames: string[];
+    runtimeState?: string;
   }>;
   step(args: {
     compiled: CompiledRlmStep;
@@ -171,10 +172,14 @@ function summarizeVariablesInfo(args: {
   inlineInputs: Record<string, unknown>;
   resources: RLMResource[];
   corpora: Array<{ id: string }>;
+  externalContext: boolean;
 }): string {
   const lines = [
     "The REPL exposes an `inputs` object containing inline input values.",
-    "Use `inputs.<field>` or `await getInput('<field>')` to read inline inputs. Inline inputs are not injected as direct top-level variables, so your code may safely declare local bindings with the same names.",
+    "The hosted Cloudflare REPL exposes a durable per-run `state` workspace for scratch files: use state.writeText/state.readText, state.writeJson/state.readJson, state.glob, state.searchFiles, and state.info.",
+    args.externalContext
+      ? "Use `inputs.<field>` for inline inputs, or `await resources.input('<field>')` when you need the resource client. Inline inputs are not injected as direct top-level variables, so your code may safely declare local bindings with the same names."
+      : "Use `inputs.<field>` to read inline inputs. Inline inputs are not injected as direct top-level variables, so your code may safely declare local bindings with the same names.",
     ...Object.keys(args.inlineInputs)
       .sort((left, right) => left.localeCompare(right))
       .filter((key) => isValidJsIdentifier(key))
@@ -186,11 +191,11 @@ function summarizeVariablesInfo(args: {
     }),
     ...args.resources.map(
       (resource) =>
-        `Prepared resource \`${resource.name}\` is not injected as a variable. Access it through ${resource.path} using listResources/readText/searchText.`,
+        `Prepared resource \`${resource.name}\` is not injected as a variable. Access it through ${resource.path} using resources.list/resources.readText/resources.searchText.`,
     ),
     ...args.corpora.map(
       (corpus) =>
-        `Configured corpus \`${corpus.id}\` is available through listCorpusFiles/readCorpusFile/searchCorpus under /corpora/${encodeURIComponent(corpus.id)}/.`,
+        `Configured corpus \`${corpus.id}\` is available through corpus.listFiles/corpus.readFile/corpus.search under /corpora/${encodeURIComponent(corpus.id)}/.`,
     ),
   ];
 
@@ -202,6 +207,7 @@ function pathMatchForCorpus(path: string): { corpusId: string; relativePath: str
   if (match == null) {
     return null;
   }
+
   return {
     corpusId: decodeURIComponent(match[1]!),
     relativePath: match[2]!,
@@ -292,28 +298,26 @@ function searchWithinText(
 function summarizeAvailableTools(args: {
   customTools: Array<{ name: string; description?: string }>;
   corpusIds: string[];
+  externalContext: boolean;
 }): string {
   const builtin = [
-    "SUBMIT(output): finalize the typed result.",
-    "print(...args): write concrete observations to the step log.",
-    "getManifest(): inspect the prepared context manifest.",
-    "listResources(): list prepared non-inline resources.",
-    "getInput(key?): inspect prepared inline input values.",
-    "query(prompt, options?): semantic helper query via the configured query provider.",
-    "llm_query(prompt, options?): alias for query(prompt, options).",
-    "queryBatch(prompts, options?): batched semantic helper queries.",
-    "llm_query_batched(prompts, options?): alias for queryBatch(prompts, options).",
-    "getTextInfo(path): inspect a prepared or corpus-backed text resource.",
-    "readText(path, options?): read a bounded slice from a prepared or corpus-backed text resource.",
-    "searchText(path, query, options?): lexical search inside a prepared or corpus-backed text resource.",
-    "readMatchWindow(path, match, options?): read a bounded window around a lexical match.",
-    "listCorpusFiles(corpusId, prefix?): list logical files in a configured corpus.",
-    "readCorpusFile(corpusId, path): read a full corpus text file.",
-    "searchCorpus(corpusId, args): run AI Search over a configured corpus.",
+    "declare const inputs: Record<string, unknown>;",
+    "declare const rlm: { query(prompt: string, options?: unknown): Promise<string>; queryBatch(prompts: string[], options?: unknown): Promise<string[]>; };",
+    "declare const state: { readText(path: string): Promise<string>; readFile(path: string): Promise<string>; writeText(path: string, content: string): Promise<unknown>; writeFile(path: string, content: string): Promise<unknown>; readJson(path: string): Promise<unknown>; writeJson(path: string, value: unknown): Promise<unknown>; glob(pattern: string): Promise<string[]>; searchFiles(pattern: string, query: string, options?: { maxResults?: number; contextChars?: number; caseSensitive?: boolean }): Promise<unknown>; mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>; rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<unknown>; info(): Promise<unknown>; materializeCorpus(corpusId: string, options?: { paths?: string[]; destinationPrefix?: string }): Promise<unknown>; }; // Durable per-run workspace for scratch files and selected corpus materialization.",
+    "declare function SUBMIT(output: unknown): Promise<unknown>;",
+    "declare function print(...args: unknown[]): void;",
+    "declare function inspect_runtime(): Array<{ name: string; type: string; ctor?: string; size?: string; preview?: string }>; // Inspect persisted serializable state from prior successful steps.",
   ];
 
+  const externalContextBuiltin = args.externalContext
+    ? [
+        "declare const resources: { manifest(): Promise<unknown>; list(): Promise<Array<{ name: string; path: string; kind: string; size?: number; preview?: string }>>; input(key?: string): Promise<unknown>; info(path: string): Promise<unknown>; readText(path: string, options?: { startChar?: number; maxChars?: number }): Promise<{ path: string; startChar: number; endChar: number; totalChars: number; truncated: boolean; text: string }>; searchText(path: string, query: string, options?: { maxResults?: number; contextChars?: number; caseSensitive?: boolean }): Promise<unknown>; readMatchWindow(path: string, match: { startChar: number; endChar: number }, options?: { beforeChars?: number; afterChars?: number; maxChars?: number }): Promise<unknown>; };",
+        "declare const corpus: { listFiles(corpusId: string, prefix?: string): Promise<string[]>; readFile(corpusId: string, path: string): Promise<unknown>; search(corpusId: string, args?: { query?: string; messages?: unknown[]; filters?: Record<string, unknown>; maxResults?: number }): Promise<unknown>; };",
+      ]
+    : [];
+
   const sections = [
-    chunkContextSummary("Builtins", builtin),
+    chunkContextSummary("Builtins", [...builtin, ...externalContextBuiltin]),
     chunkContextSummary(
       "Configured corpora",
       args.corpusIds.map((corpusId) => `${corpusId} (logical root /corpora/${encodeURIComponent(corpusId)}/...)`),
@@ -324,16 +328,27 @@ function summarizeAvailableTools(args: {
         tool.description != null && tool.description.length > 0 ? `${tool.name}: ${tool.description}` : tool.name,
       ),
     ),
-    "Session state may persist across steps in the current run. Reuse top-level variables when they already exist, but rely on `inputs`, `getInput`, and resource paths when you need to rehydrate state after a failure or recovery.",
+    args.externalContext
+      ? "Session state may persist across steps in the current run. Reuse top-level variables when they already exist, use durable `state` files for scratch artifacts that should survive recovery, and rely on `inputs`, `resources`, `corpus`, and resource paths when you need to rehydrate state after a failure or recovery."
+      : "Session state may persist across steps in the current run. Reuse top-level variables when they already exist, use durable `state` files for scratch artifacts that should survive recovery, and use `inputs` to rehydrate inline values after a failure or recovery.",
   ];
 
   return sections.join("\n\n");
+}
+
+function hasExternalContext(context: RLMPreparedContext): boolean {
+  const manifest = isRecord(context.manifest) ? context.manifest : {};
+  const corpora = Array.isArray(manifest.corpora) ? manifest.corpora : [];
+  return context.resources.length > 0 || corpora.length > 0;
 }
 
 function buildReplayProgram(
   previousCells: string[],
   currentCode: string,
   toolNames: string[],
+  options: {
+    externalContext: boolean;
+  },
 ): string {
   const toolAliases = toolNames.map((name) => {
     const identifier = sanitizeToolName(name);
@@ -345,26 +360,35 @@ function buildReplayProgram(
     "  let __submitted;",
     "  const SUBMIT = async (value) => { __submitted = value; return value; };",
     "  const print = (...args) => console.log(...args);",
-    "  const getManifest = async () => rlm.getManifest({});",
-    "  const listResources = async () => rlm.listResources({});",
-    "  const getInput = async (key) => rlm.getInput(key == null ? {} : { key });",
-    "  const inputs = await rlm.getInput({});",
-    "  const query = async (prompt, options) => rlm.query({ prompt, options });",
-    "  const llm_query = async (prompt, options) => rlm.query({ prompt, options });",
-    "  const queryBatch = async (prompts, options) => rlm.queryBatch({ prompts, options });",
-    "  const llm_query_batched = async (prompts, options) => rlm.queryBatch({ prompts, options });",
-    "  const getTextInfo = async (path) => rlm.getTextInfo({ path });",
-    "  const readText = async (path, options = {}) => rlm.readText({ path, ...(options ?? {}) });",
-    "  const searchText = async (path, query, options = {}) => rlm.searchText({ path, query, ...(options ?? {}) });",
-    "  const readMatchWindow = async (path, match, options = {}) => rlm.readMatchWindow({ path, match, ...(options ?? {}) });",
-    "  const listCorpusFiles = async (corpusId, prefix) => rlm.listCorpusFiles(prefix == null ? { corpusId } : { corpusId, prefix });",
-    "  const readCorpusFile = async (corpusId, path) => rlm.readCorpusFile({ corpusId, path });",
-    "  const searchCorpus = async (corpusId, args = {}) => rlm.searchCorpus({ corpusId, ...(args ?? {}) });",
+    `  const inspect_runtime = () => [{ name: "replay_cells", type: "number", preview: String(${previousCells.length}) }];`,
+    "  const inputs = await __rlm.getInput({});",
+    "  const rlm = {",
+    "    query: async (prompt, options) => __rlm.query({ prompt, options }),",
+    "    queryBatch: async (prompts, options) => __rlm.queryBatch({ prompts, options }),",
+    "  };",
+    ...(options.externalContext
+      ? [
+          "  const resources = {",
+          "    manifest: async () => __rlm.getManifest({}),",
+          "    list: async () => __rlm.listResources({}),",
+          "    input: async (key) => __rlm.getInput(key == null ? {} : { key }),",
+          "    info: async (path) => __rlm.getTextInfo({ path }),",
+          "    readText: async (path, options = {}) => __rlm.readText({ path, ...(options ?? {}) }),",
+          "    searchText: async (path, query, options = {}) => __rlm.searchText({ path, query, ...(options ?? {}) }),",
+          "    readMatchWindow: async (path, match, options = {}) => __rlm.readMatchWindow({ path, match, ...(options ?? {}) }),",
+          "  };",
+          "  const corpus = {",
+          "    listFiles: async (corpusId, prefix) => __rlm.listCorpusFiles(prefix == null ? { corpusId } : { corpusId, prefix }),",
+          "    readFile: async (corpusId, path) => __rlm.readCorpusFile({ corpusId, path }),",
+          "    search: async (corpusId, args = {}) => __rlm.searchCorpus({ corpusId, ...(args ?? {}) }),",
+          "  };",
+        ]
+      : []),
     ...toolAliases.map((line) => `  ${line}`),
     "",
-    "  await rlm.__setPhase({ phase: 'replay' });",
+    "  await __rlm.__setPhase({ phase: 'replay' });",
     ...previousCells.flatMap((cell) => [`  ${cell}`, "  __submitted = undefined;", ""]),
-    "  await rlm.__setPhase({ phase: 'current' });",
+    "  await __rlm.__setPhase({ phase: 'current' });",
     `  ${currentCode}`,
     "",
     "  return { submitted: __submitted };",
@@ -516,6 +540,7 @@ async function prepareSessionBundle(args: {
   };
 
   textResources.set(manifestPath, stableStringify(manifest));
+  const externalContext = resources.length > 0 || corpusIds.length > 0;
 
   return {
     inlineInputs,
@@ -551,11 +576,13 @@ async function prepareSessionBundle(args: {
               };
         }),
         corpusIds,
+        externalContext,
       }),
       variablesInfo: summarizeVariablesInfo({
         inlineInputs,
         resources,
         corpora: corpusManifest?.manifest.corpora ?? [],
+        externalContext,
       }),
       manifest,
     },
@@ -661,6 +688,10 @@ class HostedCloudflareRLMSession implements RLMSession {
     return bundle.preparedContext;
   }
 
+  describe() {
+    return this.handle.describe();
+  }
+
   async executeStep(request: RLMExecuteStepRequest): Promise<RLMExecuteStepResult> {
     const metadata = await this.handle.describe();
     const compiled = compileRlmStep(request.code, metadata.trackedNames);
@@ -731,6 +762,17 @@ class ReplayCloudflareRLMSession implements RLMSession {
     }
     this.preparedContext = bundle.preparedContext;
     return bundle.preparedContext;
+  }
+
+  async describe() {
+    const runtimeState =
+      this.successfulCells.length === 0
+        ? "No replay cells have completed yet."
+        : `Replay runtime will re-run ${this.successfulCells.length} successful prior cell(s) before the next step.`;
+    return {
+      trackedNames: [],
+      runtimeState,
+    };
   }
 
   async executeStep(request: RLMExecuteStepRequest): Promise<RLMExecuteStepResult> {
@@ -994,6 +1036,11 @@ class ReplayCloudflareRLMSession implements RLMSession {
         },
       },
     ];
+    providers.push({
+      name: "__rlm",
+      positionalArgs: false,
+      fns: providers[0]!.fns,
+    });
 
     const toolFns: Record<string, (args: unknown) => Promise<unknown>> = {};
     for (const tool of request.tools ?? this.tools) {
@@ -1028,6 +1075,9 @@ class ReplayCloudflareRLMSession implements RLMSession {
         this.successfulCells,
         request.code,
         Object.keys(toolFns),
+        {
+          externalContext: hasExternalContext(request.context),
+        },
       ),
       providers,
     );

@@ -535,19 +535,46 @@ export async function dispatchHostedRequest<TEnv>({
   project,
   warnings,
   hostPrefix,
+  auth,
 }: HostedRouteDispatchOptions<TEnv>): Promise<Response> {
+  const pathname = hostPrefix
+    ? rewritePathForHost(new URL(request.url).pathname, hostPrefix)
+    : new URL(request.url).pathname;
+  const segments = pathname.split("/").filter(Boolean);
+  const authResult =
+    auth == null
+      ? undefined
+      : await auth.authorize({
+          request,
+          env,
+          runtime,
+          executionContext,
+          route: {
+            pathname,
+            segments,
+            ...(segments[0] != null ? { surface: segments[0] } : {}),
+          },
+        });
+
+  if (authResult != null && !authResult.ok) {
+    return jsonResponse(
+      authResult.status ?? 403,
+      {
+        ok: false,
+        error: authResult.reason ?? "Request is not authorized.",
+      },
+      warnings,
+    );
+  }
+
   const routeContext: HostedRouteContextLike<TEnv> = {
     runtime,
     env,
     request,
     executionContext,
     warnings,
+    auth: authResult,
   };
-
-  const pathname = hostPrefix
-    ? rewritePathForHost(new URL(request.url).pathname, hostPrefix)
-    : new URL(request.url).pathname;
-  const segments = pathname.split("/").filter(Boolean);
 
   if (segments.length === 0) {
     return jsonResponse(

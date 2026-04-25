@@ -173,6 +173,72 @@ type ActiveAgentTurn = {
   error?: unknown;
 };
 
+type RlmStateWorkspace = {
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
+  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<unknown>;
+  readText(path: string): Promise<string>;
+  writeText(path: string, content: string): Promise<void>;
+  writeExternalText(path: string, r2Key: string, size: number): Promise<void>;
+  readJson(path: string): Promise<unknown>;
+  writeJson(path: string, value: unknown): Promise<void>;
+  glob(pattern: string): Promise<string[]>;
+  searchFiles(
+    pattern: string,
+    query: string,
+    options?: {
+      maxResults?: number;
+      contextChars?: number;
+      caseSensitive?: boolean;
+    },
+  ): Promise<
+    Array<{
+      path: string;
+      matches: Array<{
+        startChar: number;
+        endChar: number;
+        match: string;
+        snippet: string;
+      }>;
+    }>
+  >;
+  info(): Promise<{
+    fileCount: number;
+    directoryCount: number;
+    totalBytes: number;
+    r2FileCount: number;
+  }>;
+  corpusWorkspace: {
+    mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
+    writeText(path: string, content: string): Promise<void>;
+    writeBytes(path: string, content: Uint8Array): Promise<void>;
+  };
+};
+
+type RlmFacetStateStub = {
+  stateMkdir(args: { path: string; recursive?: boolean }): Promise<unknown>;
+  stateRm(args: { path: string; recursive?: boolean; force?: boolean }): Promise<unknown>;
+  stateReadText(args: { path: string }): Promise<{ path: string; content: string }>;
+  stateWriteText(args: { path: string; content: string }): Promise<unknown>;
+  stateWriteExternalText(args: { path: string; r2Key: string; size: number }): Promise<unknown>;
+  stateReadJson(args: { path: string }): Promise<{ path: string; value: unknown }>;
+  stateWriteJson(args: { path: string; value: unknown }): Promise<unknown>;
+  stateGlob(args: { pattern: string }): Promise<{ pattern: string; files: string[] }>;
+  stateSearchFiles(args: {
+    pattern: string;
+    query: string;
+    options?: {
+      maxResults?: number;
+      contextChars?: number;
+      caseSensitive?: boolean;
+    };
+  }): Promise<{
+    pattern: string;
+    query: string;
+    files: Awaited<ReturnType<RlmStateWorkspace["searchFiles"]>>;
+  }>;
+  stateInfo(): Promise<Awaited<ReturnType<RlmStateWorkspace["info"]>>>;
+};
+
 let activeWorkerRegistration: RegisteredWorker | null = null;
 let localKernelPersistence: MemoryKernelPersistence | null = null;
 const activeRlmHostedSessions = new Map<
@@ -184,6 +250,12 @@ const activeRlmHostedSessions = new Map<
     env: CloudflareEnvLike | undefined;
     provider: ReturnType<typeof bindProjectCorporaRuntime>["corpora"] | undefined;
     tools: ToolLike<unknown, unknown>[];
+    workspace?: RlmStateWorkspace;
+    stateStub?: RlmFacetStateStub;
+    textResources?: Record<string, string> | undefined;
+    stepRuntimeState?: {
+      globals?: Record<string, unknown>;
+    };
   }
 >();
 
@@ -225,6 +297,277 @@ function collectDevelopmentWarnings(options: CreateCloudflareWorkerOptions): str
   return warnings;
 }
 
+function normalizeWorkspacePath(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (normalized.includes("\0")) {
+    throw new Error("Workspace paths cannot contain null bytes.");
+  }
+  return normalized.replace(/\/{2,}/g, "/");
+}
+
+function searchWorkspaceText(
+  path: string,
+  text: string,
+  query: string,
+  options?: {
+    maxResults?: number;
+    contextChars?: number;
+    caseSensitive?: boolean;
+  },
+) {
+  const haystack = options?.caseSensitive === true ? text : text.toLowerCase();
+  const needle = options?.caseSensitive === true ? query : query.toLowerCase();
+  const maxResults = Math.max(1, options?.maxResults ?? 5);
+  const contextChars = Math.max(0, options?.contextChars ?? 80);
+  const matches: Array<{
+    startChar: number;
+    endChar: number;
+    match: string;
+    snippet: string;
+  }> = [];
+
+  if (needle.length === 0) {
+    return {
+      path,
+      matches,
+    };
+  }
+
+  let cursor = 0;
+  while (matches.length < maxResults) {
+    const index = haystack.indexOf(needle, cursor);
+    if (index < 0) {
+      break;
+    }
+    const startChar = index;
+    const endChar = index + needle.length;
+    const snippetStart = Math.max(0, startChar - contextChars);
+    const snippetEnd = Math.min(text.length, endChar + contextChars);
+    matches.push({
+      startChar,
+      endChar,
+      match: text.slice(startChar, endChar),
+      snippet: text.slice(snippetStart, snippetEnd),
+    });
+    cursor = endChar;
+  }
+
+  return {
+    path,
+    matches,
+  };
+}
+
+function createRlmStateWorkspaceProxy(stub: RlmFacetStateStub): RlmStateWorkspace {
+  return {
+    async mkdir(path, options) {
+      await stub.stateMkdir({
+        path,
+        ...(options?.recursive != null ? { recursive: options.recursive } : {}),
+      });
+    },
+    async rm(path, options) {
+      return stub.stateRm({
+        path,
+        ...(options?.recursive != null ? { recursive: options.recursive } : {}),
+        ...(options?.force != null ? { force: options.force } : {}),
+      });
+    },
+    async readText(path) {
+      return (await stub.stateReadText({ path })).content;
+    },
+    async writeText(path, content) {
+      await stub.stateWriteText({ path, content });
+    },
+    async writeExternalText(path, r2Key, size) {
+      await stub.stateWriteExternalText({ path, r2Key, size });
+    },
+    async readJson(path) {
+      return (await stub.stateReadJson({ path })).value;
+    },
+    async writeJson(path, value) {
+      await stub.stateWriteJson({ path, value });
+    },
+    async glob(pattern) {
+      return (await stub.stateGlob({ pattern })).files;
+    },
+    async searchFiles(pattern, query, options) {
+      return (await stub.stateSearchFiles({ pattern, query, ...(options != null ? { options } : {}) })).files;
+    },
+    info() {
+      return stub.stateInfo();
+    },
+    corpusWorkspace: {
+      async mkdir(path, options) {
+        await stub.stateMkdir({
+          path,
+          ...(options?.recursive != null ? { recursive: options.recursive } : {}),
+        });
+      },
+      async writeText(path, content) {
+        await stub.stateWriteText({ path, content });
+      },
+      async writeBytes(path, content) {
+        await stub.stateWriteText({ path, content: new TextDecoder().decode(content) });
+      },
+    },
+  };
+}
+
+function createMemoryRlmStateWorkspace(): RlmStateWorkspace {
+  const entries = new Map<
+    string,
+    {
+      type: "file" | "directory";
+      content?: string;
+      r2Key?: string;
+      size: number;
+    }
+  >();
+
+  const ensureDirectory = (path: string) => {
+    const normalized = normalizeWorkspacePath(path);
+    const parts = normalized.split("/").filter(Boolean);
+    entries.set("/", { type: "directory", size: 0 });
+    for (let index = 0; index < parts.length; index += 1) {
+      entries.set(`/${parts.slice(0, index + 1).join("/")}`, { type: "directory", size: 0 });
+    }
+  };
+
+  const globToRegExp = (pattern: string) => {
+    const normalized = normalizeWorkspacePath(pattern);
+    let source = "^";
+    for (let index = 0; index < normalized.length; index += 1) {
+      const char = normalized[index];
+      const next = normalized[index + 1];
+      if (char === "*" && next === "*") {
+        source += ".*";
+        index += 1;
+      } else if (char === "*") {
+        source += "[^/]*";
+      } else if (char === "?") {
+        source += "[^/]";
+      } else {
+        source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+      }
+    }
+    return new RegExp(`${source}$`);
+  };
+
+  const readText = async (path: string) => {
+    const normalized = normalizeWorkspacePath(path);
+    const entry = entries.get(normalized);
+    if (entry == null || entry.type !== "file") {
+      throw new Error(`Workspace file "${normalized}" was not found.`);
+    }
+    if (entry.content == null) {
+      throw new Error(`Workspace file "${normalized}" is externally stored and cannot be read by the memory workspace.`);
+    }
+    return entry.content;
+  };
+
+  return {
+    async mkdir(path) {
+      ensureDirectory(path);
+    },
+    async rm(path, options) {
+      const normalized = normalizeWorkspacePath(path);
+      const prefix = `${normalized.replace(/\/$/, "")}/`;
+      const removedR2Keys: string[] = [];
+      for (const [entryPath, entry] of [...entries]) {
+        const selected = entryPath === normalized || (options?.recursive !== false && entryPath.startsWith(prefix));
+        if (!selected) {
+          continue;
+        }
+        if (entry.r2Key != null) {
+          removedR2Keys.push(entry.r2Key);
+        }
+        entries.delete(entryPath);
+      }
+      if (removedR2Keys.length === 0 && !entries.has(normalized) && options?.force !== true) {
+        throw new Error(`Workspace path "${normalized}" was not found.`);
+      }
+      return {
+        r2Keys: removedR2Keys,
+      };
+    },
+    readText,
+    async writeText(path, content) {
+      const normalized = normalizeWorkspacePath(path);
+      ensureDirectory(normalized.split("/").slice(0, -1).join("/") || "/");
+      entries.set(normalized, {
+        type: "file",
+        content,
+        size: new TextEncoder().encode(content).byteLength,
+      });
+    },
+    async writeExternalText(path, r2Key, size) {
+      const normalized = normalizeWorkspacePath(path);
+      ensureDirectory(normalized.split("/").slice(0, -1).join("/") || "/");
+      entries.set(normalized, {
+        type: "file",
+        r2Key,
+        size,
+      });
+    },
+    async readJson(path) {
+      return JSON.parse(await readText(path));
+    },
+    async writeJson(path, value) {
+      await this.writeText(path, JSON.stringify(value, null, 2));
+    },
+    async glob(pattern) {
+      const regex = globToRegExp(pattern);
+      return [...entries.entries()]
+        .filter(([, entry]) => entry.type === "file")
+        .map(([path]) => path)
+        .filter((path) => regex.test(path))
+        .sort((left, right) => left.localeCompare(right));
+    },
+    async searchFiles(pattern, query, options) {
+      const files = await this.glob(pattern);
+      const matches = [];
+      for (const path of files) {
+        const entry = entries.get(path);
+        if (entry?.content == null) {
+          continue;
+        }
+        const result = searchWorkspaceText(path, entry.content, query, options);
+        if (result.matches.length > 0) {
+          matches.push(result);
+        }
+      }
+      return matches;
+    },
+    async info() {
+      const values = [...entries.values()];
+      return {
+        fileCount: values.filter((entry) => entry.type === "file").length,
+        directoryCount: values.filter((entry) => entry.type === "directory").length,
+        totalBytes: values.reduce((sum, entry) => sum + entry.size, 0),
+        r2FileCount: values.filter((entry) => entry.type === "file" && entry.r2Key != null).length,
+      };
+    },
+    corpusWorkspace: {
+      async mkdir(path) {
+        ensureDirectory(path);
+      },
+      async writeText(path, content) {
+        const normalized = normalizeWorkspacePath(path);
+        ensureDirectory(normalized.split("/").slice(0, -1).join("/") || "/");
+        entries.set(normalized, {
+          type: "file",
+          content,
+          size: new TextEncoder().encode(content).byteLength,
+        });
+      },
+      async writeBytes(path, content) {
+        await this.writeText(path, new TextDecoder().decode(content));
+      },
+    },
+  };
+}
+
 function logWarnings(runtime: RuntimeContextLike | undefined, warnings: string[]): void {
   if (warnings.length === 0) {
     return;
@@ -259,6 +602,9 @@ async function dispatchRequest({
     project: registration.project,
     warnings: registration.warnings,
     ...(hostPrefix != null ? { hostPrefix } : {}),
+    ...(registration.options.hosting?.auth != null
+      ? { auth: registration.options.hosting.auth }
+      : {}),
   });
 }
 
@@ -394,6 +740,14 @@ export class RlmRuntimeHost extends WorkerEntrypointBase {
           return Response.json(
             await this.readCorpusFile(payload as Parameters<typeof this.readCorpusFile>[0]),
           );
+        case "/read-prepared-text":
+          return Response.json(
+            await this.readPreparedText(payload as Parameters<typeof this.readPreparedText>[0]),
+          );
+        case "/step-runtime-state":
+          return Response.json(
+            await this.readStepRuntimeState(payload as Parameters<typeof this.readStepRuntimeState>[0]),
+          );
         case "/search-corpus":
           return Response.json(
             await this.searchCorpus(payload as Parameters<typeof this.searchCorpus>[0]),
@@ -402,6 +756,40 @@ export class RlmRuntimeHost extends WorkerEntrypointBase {
           return Response.json({
             output: await this.executeTool(payload as Parameters<typeof this.executeTool>[0]),
           });
+        case "/state-read-text":
+          return Response.json(
+            await this.readWorkspaceText(payload as Parameters<typeof this.readWorkspaceText>[0]),
+          );
+        case "/state-write-text":
+          return Response.json(
+            await this.writeWorkspaceText(payload as Parameters<typeof this.writeWorkspaceText>[0]),
+          );
+        case "/state-read-json":
+          return Response.json(
+            await this.readWorkspaceJson(payload as Parameters<typeof this.readWorkspaceJson>[0]),
+          );
+        case "/state-write-json":
+          return Response.json(
+            await this.writeWorkspaceJson(payload as Parameters<typeof this.writeWorkspaceJson>[0]),
+          );
+        case "/state-glob":
+          return Response.json(await this.globWorkspace(payload as Parameters<typeof this.globWorkspace>[0]));
+        case "/state-search-files":
+          return Response.json(
+            await this.searchWorkspaceFiles(payload as Parameters<typeof this.searchWorkspaceFiles>[0]),
+          );
+        case "/state-mkdir":
+          return Response.json(await this.mkdirWorkspace(payload as Parameters<typeof this.mkdirWorkspace>[0]));
+        case "/state-rm":
+          return Response.json(await this.rmWorkspace(payload as Parameters<typeof this.rmWorkspace>[0]));
+        case "/state-info":
+          return Response.json(await this.workspaceInfo(payload as Parameters<typeof this.workspaceInfo>[0]));
+        case "/state-materialize-corpus":
+          return Response.json(
+            await this.materializeCorpusToWorkspace(
+              payload as Parameters<typeof this.materializeCorpusToWorkspace>[0],
+            ),
+          );
         default:
           return new Response(`RLM runtime host route "${url.pathname}" was not found.`, {
             status: 404,
@@ -439,9 +827,18 @@ export class RlmRuntimeHost extends WorkerEntrypointBase {
       provider: runtime.corpora,
       tools: (((target as unknown as { options?: { tools?: ToolLike<unknown, unknown>[] } }).options?.tools ??
         []) as ToolLike<unknown, unknown>[]),
+      textResources: undefined,
     };
     activeRlmHostedSessions.set(args.runId, session);
     return session;
+  }
+
+  private resolveWorkspace(args: { runId: string; moduleId?: string }): RlmStateWorkspace {
+    const workspace = this.resolveHostedSession(args).workspace;
+    if (workspace == null) {
+      throw new Error(`Hosted RLM session "${args.runId}" does not expose a state workspace.`);
+    }
+    return workspace;
   }
 
   async query(args: {
@@ -523,6 +920,32 @@ export class RlmRuntimeHost extends WorkerEntrypointBase {
     };
   }
 
+  async readPreparedText(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+  }): Promise<{ path: string; content: string }> {
+    const session = this.resolveHostedSession(args);
+    const content = session.textResources?.[args.path];
+    if (content == null) {
+      throw new Error(`Prepared text resource "${args.path}" was not found for RLM run "${args.runId}".`);
+    }
+    return {
+      path: args.path,
+      content,
+    };
+  }
+
+  async readStepRuntimeState(args: {
+    runId: string;
+    moduleId?: string;
+  }): Promise<{ globals: Record<string, unknown> }> {
+    const session = this.resolveHostedSession(args);
+    return {
+      globals: session.stepRuntimeState?.globals ?? {},
+    };
+  }
+
   async searchCorpus(args: {
     runId: string;
     moduleId?: string;
@@ -570,6 +993,181 @@ export class RlmRuntimeHost extends WorkerEntrypointBase {
     const outputSchema = getOutputSchema(tool as unknown as HostingProjectTargetLike);
     return validateWithSchema(outputSchema, output);
   }
+
+  async readWorkspaceText(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+  }): Promise<{ path: string; content: string }> {
+    const workspace = this.resolveWorkspace(args);
+    return {
+      path: normalizeWorkspacePath(args.path),
+      content: await workspace.readText(args.path),
+    };
+  }
+
+  async writeWorkspaceText(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+    content: string;
+  }): Promise<{ path: string; bytes: number }> {
+    const session = this.resolveHostedSession(args);
+    const workspace = this.resolveWorkspace(args);
+    const bytes = new TextEncoder().encode(args.content).byteLength;
+    const bucket = this.hostedEnv?.SO_RLM_WORKSPACE ?? this.hostedEnv?.SO_ARTIFACTS;
+    if (bucket != null && bytes > 1_500_000) {
+      const safeRunId = args.runId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+      const normalized = normalizeWorkspacePath(args.path);
+      const key = `rlm-workspaces/${safeRunId}${normalized}`;
+      await bucket.put(key, args.content);
+      await workspace.writeExternalText(normalized, key, bytes);
+      return {
+        path: normalized,
+        bytes,
+      };
+    }
+    await workspace.writeText(args.path, args.content);
+    return {
+      path: normalizeWorkspacePath(args.path),
+      bytes,
+    };
+  }
+
+  async readWorkspaceJson(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+  }): Promise<{ path: string; value: unknown }> {
+    const workspace = this.resolveWorkspace(args);
+    return {
+      path: normalizeWorkspacePath(args.path),
+      value: await workspace.readJson(args.path),
+    };
+  }
+
+  async writeWorkspaceJson(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+    value: unknown;
+  }): Promise<{ path: string }> {
+    const workspace = this.resolveWorkspace(args);
+    await workspace.writeJson(args.path, args.value);
+    return {
+      path: normalizeWorkspacePath(args.path),
+    };
+  }
+
+  async globWorkspace(args: {
+    runId: string;
+    moduleId?: string;
+    pattern: string;
+  }): Promise<{ pattern: string; files: string[] }> {
+    const workspace = this.resolveWorkspace(args);
+    return {
+      pattern: args.pattern,
+      files: await workspace.glob(args.pattern),
+    };
+  }
+
+  async searchWorkspaceFiles(args: {
+    runId: string;
+    moduleId?: string;
+    pattern: string;
+    query: string;
+    options?: {
+      maxResults?: number;
+      contextChars?: number;
+      caseSensitive?: boolean;
+    };
+  }): Promise<{
+    pattern: string;
+    query: string;
+    files: Awaited<ReturnType<RlmStateWorkspace["searchFiles"]>>;
+  }> {
+    const workspace = this.resolveWorkspace(args);
+    return {
+      pattern: args.pattern,
+      query: args.query,
+      files: await workspace.searchFiles(args.pattern, args.query, args.options),
+    };
+  }
+
+  async mkdirWorkspace(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+    recursive?: boolean;
+  }): Promise<{ path: string }> {
+    const workspace = this.resolveWorkspace(args);
+    await workspace.mkdir(args.path, {
+      recursive: args.recursive ?? true,
+    });
+    return {
+      path: normalizeWorkspacePath(args.path),
+    };
+  }
+
+  async rmWorkspace(args: {
+    runId: string;
+    moduleId?: string;
+    path: string;
+    recursive?: boolean;
+    force?: boolean;
+  }): Promise<{ path: string }> {
+    const session = this.resolveHostedSession(args);
+    const workspace = this.resolveWorkspace(args);
+    const result = await workspace.rm(args.path, {
+      recursive: args.recursive ?? true,
+      force: args.force ?? true,
+    });
+    const r2Keys = isRecord(result) && Array.isArray(result.r2Keys) ? result.r2Keys : [];
+    const bucket = this.hostedEnv?.SO_RLM_WORKSPACE ?? this.hostedEnv?.SO_ARTIFACTS;
+    if (bucket != null) {
+      await Promise.all(
+        r2Keys
+          .filter((key): key is string => typeof key === "string")
+          .map((key) => bucket.delete(key).catch(() => undefined)),
+      );
+    }
+    return {
+      path: normalizeWorkspacePath(args.path),
+    };
+  }
+
+  async workspaceInfo(args: {
+    runId: string;
+    moduleId?: string;
+  }): Promise<Awaited<ReturnType<RlmStateWorkspace["info"]>>> {
+    return this.resolveWorkspace(args).info();
+  }
+
+  async materializeCorpusToWorkspace(args: {
+    runId: string;
+    moduleId?: string;
+    corpusId: string;
+    paths?: string[];
+    destinationPrefix?: string;
+  }): Promise<unknown> {
+    const session = this.resolveHostedSession(args);
+    const provider = session.provider;
+    if (provider == null) {
+      throw new Error(`Hosted RLM session "${args.runId}" does not expose corpora.`);
+    }
+    if (session.workspace == null) {
+      throw new Error(`Hosted RLM session "${args.runId}" does not expose a state workspace.`);
+    }
+    const corpus = await provider.resolve(args.corpusId);
+    if (corpus.materializeToWorkspace == null) {
+      throw new Error(`Corpus "${args.corpusId}" does not support workspace materialization.`);
+    }
+    return corpus.materializeToWorkspace({
+      workspace: session.workspace.corpusWorkspace,
+      ...(args.paths != null ? { paths: args.paths } : {}),
+      ...(args.destinationPrefix != null ? { destinationPrefix: args.destinationPrefix } : {}),
+    });
+  }
 }
 
 function createFacetBackedRlmSessionManager(
@@ -583,6 +1181,7 @@ function createFacetBackedRlmSessionManager(
         throw new Error(`RLM module "${args.moduleId}" was not found.`);
       }
 
+      const stub = await host.getRlmFacetStub(args.runId);
       activeRlmHostedSessions.set(args.runId, {
         moduleId: args.moduleId,
         target,
@@ -590,11 +1189,18 @@ function createFacetBackedRlmSessionManager(
         env: args.env,
         provider: args.provider,
         tools: args.tools as ToolLike<unknown, unknown>[],
+        workspace: createMemoryRlmStateWorkspace(),
+        stateStub: stub as RlmFacetStateStub,
       });
 
-      const stub = await host.getRlmFacetStub(args.runId);
       return {
         async init(payload) {
+          const activeSession = activeRlmHostedSessions.get(args.runId);
+          if (activeSession != null && isRecord(payload)) {
+            activeSession.textResources = isRecord(payload.textResources)
+              ? (payload.textResources as Record<string, string>)
+              : {};
+          }
           await stub.init(payload);
         },
         describe() {
@@ -604,6 +1210,13 @@ function createFacetBackedRlmSessionManager(
           const sessionState = (await stub.exportState()) as Parameters<
             typeof buildHostedRlmStepWorkerSource
           >[0]["state"];
+          const activeSession = activeRlmHostedSessions.get(args.runId);
+          if (activeSession != null) {
+            activeSession.textResources = sessionState.textResources ?? {};
+            activeSession.stepRuntimeState = {
+              globals: isRecord(sessionState.globals) ? sessionState.globals : {},
+            };
+          }
           const loader = host.getRlmLoader();
           if (loader == null) {
             throw new Error("Facet-backed RLM sessions require a LOADER binding.");
@@ -751,15 +1364,23 @@ function maybeDispatchToDurableHost(
 
   const [surface, name, tail] = segments;
   if (surface === "agents" && name != null && tail != null) {
-    const namespace = resolveDurableHostNamespace(env, "SO_THINK");
+    const namespace = resolveDurableHostNamespace(env, "SO_AGENT");
     if (namespace == null) {
       return null;
     }
     return forwardDurableHostRequest(namespace, encodeHostInstanceName(name, tail), request);
   }
 
+  if (surface === "streams" && name != null) {
+    const namespace = resolveDurableHostNamespace(env, "SO_STREAM");
+    if (namespace == null) {
+      return null;
+    }
+    return forwardDurableHostRequest(namespace, encodeHostInstanceName(name), request);
+  }
+
   if (surface === "rpc" && name != null) {
-    const namespace = resolveDurableHostNamespace(env, "SO_AGENT");
+    const namespace = resolveDurableHostNamespace(env, "SO_RPC");
     if (namespace == null) {
       return null;
     }
@@ -1708,9 +2329,9 @@ export class ModuleKernel extends AgentBase {
     this.hostedRlmSessionManager = createFacetBackedRlmSessionManager(this);
   }
 
-  async getRlmFacetStub(runId: string): Promise<{
+  async getRlmFacetStub(runId: string): Promise<RlmFacetStateStub & {
     init(args: unknown): Promise<unknown>;
-    describe(): Promise<{ trackedNames: string[] }>;
+    describe(): Promise<{ trackedNames: string[]; runtimeState?: string }>;
     exportState(): Promise<unknown>;
     applyStepResult(args: unknown): Promise<unknown>;
     checkpoint(value: unknown): Promise<void>;
@@ -1723,9 +2344,9 @@ export class ModuleKernel extends AgentBase {
           get(
             name: string,
             getStartupOptions: () => Promise<{ class: unknown }> | { class: unknown },
-          ): {
+          ): RlmFacetStateStub & {
             init(args: unknown): Promise<unknown>;
-            describe(): Promise<{ trackedNames: string[] }>;
+            describe(): Promise<{ trackedNames: string[]; runtimeState?: string }>;
             exportState(): Promise<unknown>;
             applyStepResult(args: unknown): Promise<unknown>;
             checkpoint(value: unknown): Promise<void>;
@@ -1803,7 +2424,12 @@ export class ModuleKernel extends AgentBase {
         };
       };
     };
-    self.ctx?.facets?.delete(getFacetName(runId));
+    try {
+      self.ctx?.facets?.delete(getFacetName(runId));
+    } catch {
+      // Facet deletion is cleanup only. Preserve the original run result/error if local workerd
+      // rejects deleting an already-failed or already-disposed facet.
+    }
   }
 
   async onRequest(request: Request): Promise<Response> {
@@ -1866,7 +2492,7 @@ export class ModuleKernel extends AgentBase {
           }
         : {}),
     } as RuntimeContextLike;
-    await executeKernelTarget({
+    const recovery = executeKernelTarget({
       target,
       input,
       runtime: resumedRuntime,
@@ -1878,7 +2504,20 @@ export class ModuleKernel extends AgentBase {
         moduleId: snapshot.moduleId,
         recovered: true,
       },
+    }).catch((error) => {
+      console.error("[superobjective/cloudflare] RLM fiber recovery failed", error);
     });
+
+    const waitUntil = (this as unknown as { ctx?: { waitUntil?: (promise: Promise<unknown>) => void } }).ctx
+      ?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil.call(
+        (this as unknown as { ctx: { waitUntil: (promise: Promise<unknown>) => void } }).ctx,
+        recovery,
+      );
+    } else {
+      void recovery;
+    }
   }
 }
 

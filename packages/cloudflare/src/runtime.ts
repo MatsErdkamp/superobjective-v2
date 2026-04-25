@@ -185,6 +185,14 @@ function sanitizeSchemaName(value: string): string {
   );
 }
 
+function truncateSchemaDescription(value: string | undefined): string | undefined {
+  const maxLength = 1024;
+  if (value == null || value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 15).trimEnd()} [truncated]`;
+}
+
 function resolveWorkersAIBinding(
   env: CloudflareEnvLike | undefined,
   bindingName: string,
@@ -256,13 +264,14 @@ export class WorkersAIModelHandle implements ModelHandleLike {
 
     const jsonSchema = z.toJSONSchema(args.schema) as JsonSchema;
     const schemaName = sanitizeSchemaName(args.schemaName ?? this.model);
+    const schemaDescription = truncateSchemaDescription(args.schemaDescription);
     const requestBody: Record<string, unknown> = {
       messages: args.messages,
       response_format: {
         type: "json_schema",
         json_schema: {
           name: schemaName,
-          description: args.schemaDescription,
+          ...(schemaDescription != null ? { description: schemaDescription } : {}),
           schema: jsonSchema,
           strict: args.strict ?? true,
         },

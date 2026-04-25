@@ -27,6 +27,7 @@ const dashboardActionInput = z.object({
 
 const traceDetailInput = z.object({
   runId: z.string().min(1),
+  raw: z.boolean().optional(),
 });
 
 type DashboardActionInput = z.infer<typeof dashboardActionInput>;
@@ -152,6 +153,7 @@ export type DashboardActionResult = {
 
 export type DashboardTraceResponse = {
   ok: boolean;
+  serialization: "safe" | "raw";
   trace: JsonValue;
   summary: DashboardSnapshot["traces"][number];
 };
@@ -281,6 +283,9 @@ export const getDashboardTrace = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     return fetchDashboardJson<DashboardTraceResponse>(
       `/dashboard/traces/${encodeURIComponent(data.runId)}`,
+      {
+        raw: data.raw === true ? 1 : undefined,
+      },
     );
   });
 

@@ -195,6 +195,14 @@ function sanitizeSchemaName(value: string): string {
   );
 }
 
+function truncateSchemaDescription(value: string | undefined): string | undefined {
+  const maxLength = 1024;
+  if (value == null || value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 15).trimEnd()} [truncated]`;
+}
+
 function coerceObjectShape(schema: z.ZodTypeAny, raw: unknown): unknown {
   if (!(schema instanceof z.ZodObject)) {
     return raw;
@@ -244,6 +252,7 @@ export function createWorkersAiJsonModel(options: {
     schemaDescription?: string;
   }) => {
     const schemaName = sanitizeSchemaName(args.schemaName ?? options.model);
+    const schemaDescription = truncateSchemaDescription(args.schemaDescription);
     const response = await args.binding.run(
       options.model,
       {
@@ -261,7 +270,7 @@ export function createWorkersAiJsonModel(options: {
           type: "json_schema",
           json_schema: {
             name: schemaName,
-            ...(args.schemaDescription ? { description: args.schemaDescription } : {}),
+            ...(schemaDescription ? { description: schemaDescription } : {}),
             schema: z.toJSONSchema(args.schema),
             strict: true,
           },

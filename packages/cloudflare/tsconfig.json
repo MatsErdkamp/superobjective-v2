@@ -3,12 +3,18 @@
   "compilerOptions": {
     "composite": true,
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "paths": {
+      "@superobjective/streams": ["packages/streams/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"],
   "references": [
     {
       "path": "../hosting"
+    },
+    {
+      "path": "../streams"
     },
     {
       "path": "../core"

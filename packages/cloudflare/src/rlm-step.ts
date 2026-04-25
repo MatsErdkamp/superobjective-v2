@@ -34,22 +34,12 @@ export type CompiledRlmStep = {
 const RESERVED_NAMES = new Set([
   "SUBMIT",
   "console",
-  "getInput",
-  "getManifest",
+  "corpus",
   "inputs",
-  "listCorpusFiles",
-  "listResources",
-  "llm_query",
-  "llm_query_batched",
   "print",
-  "query",
-  "queryBatch",
-  "readCorpusFile",
-  "readMatchWindow",
-  "readText",
-  "searchCorpus",
-  "searchText",
   "tools",
+  "resources",
+  "rlm",
 ]);
 
 function identifier(name: string): IdentifierNode {

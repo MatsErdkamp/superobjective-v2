@@ -14,7 +14,7 @@ import { predict } from "./predict.js";
 import { getRuntimeContext } from "./runtime.js";
 import { input, signature, signatureToInputZodSchema, signatureToOutputZodSchema, text } from "./schema.js";
 import { mergeCandidates } from "./candidate.js";
-import { chooseArtifactCandidate, serializeError, stableStringify } from "./utils.js";
+import { chooseArtifactCandidate, createId, serializeError, stableStringify } from "./utils.js";
 import type {
   CompiledArtifact,
   PredictModule,
@@ -23,7 +23,9 @@ import type {
   RLMHistoryEntry,
   RLMModule,
   RLMOptions,
+  RLMSessionDescription,
   RLMSessionCheckpoint,
+  RunResult,
   RunOptions,
   RuntimeContext,
   SerializedError,
@@ -43,8 +45,8 @@ const DEFAULT_ACT_INSTRUCTIONS = text({
     "Iterate with small code snippets, print concrete observations, and preserve useful variables across steps.",
     "Do not dump full large inputs or resources into the log. Print bounded summaries, selected slices, counts, paths, and exact evidence snippets only.",
     "The REPL is a Worker-compatible JavaScript environment, not Node.js. Do not use require, fs, process, Buffer, child_process, or other Node-only APIs.",
-    "Read data from inputs, getInput, readText, searchText, readMatchWindow, listCorpusFiles, readCorpusFile, searchCorpus, and configured tools.",
-    "Use llm_query or llm_query_batched for semantic analysis after you have located a bounded subproblem.",
+    "Read inline data from `inputs`. When external resources are present, use the namespaced APIs `resources.list()`, `resources.readText(...)`, `resources.searchText(...)`, `corpus.search(...)`, and `corpus.readFile(...)`.",
+    "Use `rlm.query(...)` or `rlm.queryBatch(...)` for semantic analysis after you have located a bounded subproblem.",
     "Minimize retyping. Reuse variables, parsed values, and exact strings from prior steps instead of copying them manually.",
     "Verify concrete evidence before calling SUBMIT.",
     "Call SUBMIT only with the final typed output object.",
@@ -62,6 +64,7 @@ const DEFAULT_MAX_QUERY_CALLS = Number.MAX_SAFE_INTEGER;
 
 type RlmInternalOptions = RunOptions & {
   __execution?: ExecutionState;
+  __parentSpanId?: string;
 };
 
 type RlmState<TInput, TOutput> = {
@@ -118,6 +121,9 @@ export function rlm<TInput extends Record<string, unknown>, TOutput extends Reco
       inputSchema: state.inputSchema,
       outputSchema: state.outputSchema,
       options: state.options,
+      runWithTrace(input: TInput, runOptions?: RunOptions): Promise<RunResult<TOutput>> {
+        return executeRlmWithTrace(state, input, runOptions);
+      },
       inspectTextCandidate() {
         return filterOriginalSignatureCandidate(
           state.signature,
@@ -203,6 +209,15 @@ async function executeRlm<TInput, TOutput>(
   input: TInput,
   options?: RunOptions,
 ): Promise<TOutput> {
+  const result = await executeRlmWithTrace<TInput, TOutput>(state, input, options);
+  return result.output;
+}
+
+async function executeRlmWithTrace<TInput, TOutput>(
+  state: RlmState<TInput, TOutput>,
+  input: TInput,
+  options?: RunOptions,
+): Promise<RunResult<TOutput>> {
   const internalOptions = options as RlmInternalOptions | undefined;
   const runtime = resolveRuntime(state, options);
   const resumeRunId =
@@ -259,7 +274,12 @@ async function executeRlm<TInput, TOutput>(
       };
     }
 
-    component = findOpenRlmComponent(execution, state.id, validatedInput);
+    component = findOpenRlmComponent(
+      execution,
+      state.id,
+      validatedInput,
+      internalOptions?.__parentSpanId,
+    );
 
     const preparedContext =
       resumed?.preparedContext ?? (await session.prepareContext(validatedInput as Record<string, unknown>));
@@ -310,6 +330,7 @@ async function executeRlm<TInput, TOutput>(
       ...childOptionBase,
       runtime,
       __execution: execution,
+      ...(component.spanId ? { __parentSpanId: component.spanId } : {}),
       ...(Object.keys(inheritedCandidate).length > 0 ? { candidate: inheritedCandidate } : {}),
     };
 
@@ -351,7 +372,7 @@ async function executeRlm<TInput, TOutput>(
         nextIteration: value.nextIteration,
         llmCallsUsed: value.llmCallsUsed,
         queryCallsUsed: value.queryCallsUsed,
-        trace: cloneRlmTrace(value.trace),
+        trace: value.trace,
         ...(sessionKind != null ? { sessionKind } : {}),
       });
     }
@@ -370,6 +391,10 @@ async function executeRlm<TInput, TOutput>(
       checkpointed = true;
     }
 
+    async function currentVariablesInfo() {
+      return mergeVariablesInfo(preparedContext.variablesInfo, await session.describe?.());
+    }
+
     for (let iteration = resumed?.nextIteration ?? 0; iteration < maxIterations; iteration += 1) {
       if (llmCallsUsed >= maxLlmCalls) {
         break;
@@ -379,7 +404,7 @@ async function executeRlm<TInput, TOutput>(
         {
           contextRoot: preparedContext.contextRoot,
           contextManifest: preparedContext.manifestSummary,
-          variablesInfo: preparedContext.variablesInfo ?? "No explicit REPL variable metadata was provided.",
+          variablesInfo: await currentVariablesInfo(),
           availableTools: preparedContext.availableTools ?? "No explicit tool summary was provided.",
           replHistory: formatHistory(history, maxOutputChars),
           iteration: `${iteration + 1}/${maxIterations}`,
@@ -425,12 +450,12 @@ async function executeRlm<TInput, TOutput>(
       }
 
       queryCallsUsed = stepResult.queryCallsUsed;
-      stepTrace.logs = [...(stepResult.logs ?? [])];
+      stepTrace.logs = (stepResult.logs ?? []).map((line) => truncateOutput(line, maxOutputChars));
       if (stepResult.stdout != null) {
-        stepTrace.stdout = stepResult.stdout;
+        stepTrace.stdout = truncateOutput(stepResult.stdout, maxOutputChars);
       }
       if (stepResult.stderr != null) {
-        stepTrace.stderr = stepResult.stderr;
+        stepTrace.stderr = truncateOutput(stepResult.stderr, maxOutputChars);
       }
       if (stepResult.submitted !== undefined) {
         stepTrace.submitted = stepResult.submitted;
@@ -441,6 +466,12 @@ async function executeRlm<TInput, TOutput>(
       if (stepResult.toolCalls?.length) {
         stepTrace.toolCalls = stepResult.toolCalls.map((toolCall) => ({
           ...toolCall,
+          input: truncateTraceValue(toolCall.input, maxOutputChars),
+          ...(toolCall.output !== undefined ? { output: truncateTraceValue(toolCall.output, maxOutputChars) } : {}),
+          spanId: toolCall.spanId ?? createId("span"),
+          ...(toolCall.parentSpanId == null && component?.spanId
+            ? { parentSpanId: component.spanId }
+            : {}),
           source: "rlm",
         }));
         for (const toolCall of stepTrace.toolCalls) {
@@ -448,7 +479,7 @@ async function executeRlm<TInput, TOutput>(
         }
       }
 
-      for (const line of collectStepLines(stepResult)) {
+      for (const line of collectStepLines(stepResult, maxOutputChars)) {
         logToTrace(execution, component, line);
       }
 
@@ -458,10 +489,10 @@ async function executeRlm<TInput, TOutput>(
           stepTrace.endedAt = new Date().toISOString();
           execution.trace.programmable.steps.push(stepTrace);
           finishComponent(component, output);
-          if (!internalOptions?.__execution) {
-            await finalizeExecution(execution, { output });
-          }
-          return output;
+          const trace = internalOptions?.__execution
+            ? execution.trace
+            : await finalizeExecution(execution, { output });
+          return { output, trace };
         } catch (error) {
           stepTrace.submitValidationError = serializeError(error);
           stepGuidance = formatSubmitValidationGuidance(error);
@@ -512,7 +543,7 @@ async function executeRlm<TInput, TOutput>(
       {
         contextRoot: preparedContext.contextRoot,
         contextManifest: preparedContext.manifestSummary,
-        variablesInfo: preparedContext.variablesInfo ?? "No explicit REPL variable metadata was provided.",
+        variablesInfo: await currentVariablesInfo(),
         availableTools: preparedContext.availableTools ?? "No explicit tool summary was provided.",
         replHistory: formatHistory(history, maxOutputChars),
       },
@@ -524,10 +555,10 @@ async function executeRlm<TInput, TOutput>(
     if (component != null) {
       finishComponent(component, output);
     }
-    if (!internalOptions?.__execution) {
-      await finalizeExecution(execution, { output });
-    }
-    return output;
+    const trace = internalOptions?.__execution
+      ? execution.trace
+      : await finalizeExecution(execution, { output });
+    return { output, trace };
   } catch (error) {
     if (component != null) {
       failComponent(component, error);
@@ -541,6 +572,16 @@ async function executeRlm<TInput, TOutput>(
   }
 }
 
+function mergeVariablesInfo(staticInfo: string | undefined, description: RLMSessionDescription | undefined): string {
+  const parts = [staticInfo ?? "No explicit REPL variable metadata was provided."];
+  if (description?.runtimeState != null && description.runtimeState.trim().length > 0) {
+    parts.push(`Live Runtime State:\n${description.runtimeState.trim()}`);
+  } else if (description?.trackedNames != null && description.trackedNames.length > 0) {
+    parts.push(`Live Runtime State:\nTracked persisted names: ${description.trackedNames.join(", ")}`);
+  }
+  return parts.join("\n\n");
+}
+
 function cloneRlmTrace<TTrace>(trace: TTrace): TTrace {
   if (typeof structuredClone === "function") {
     return structuredClone(trace);
@@ -552,6 +593,7 @@ function findOpenRlmComponent<TInput>(
   execution: ExecutionState,
   componentId: string,
   input: TInput,
+  parentSpanId: string | undefined,
 ) {
   const existing = execution.trace.components.find(
     (component) =>
@@ -560,6 +602,10 @@ function findOpenRlmComponent<TInput>(
       component.endedAt == null,
   );
   if (existing != null) {
+    existing.spanId ??= createId("span");
+    if (parentSpanId != null && existing.parentSpanId == null) {
+      existing.parentSpanId = parentSpanId;
+    }
     return existing;
   }
 
@@ -567,6 +613,7 @@ function findOpenRlmComponent<TInput>(
     componentId,
     componentKind: "rlm",
     input,
+    ...(parentSpanId ? { parentSpanId } : {}),
   });
 }
 
@@ -687,6 +734,29 @@ function truncateOutput(value: string, maxChars: number): string {
   ].join("\n");
 }
 
+function truncateTraceValue(value: unknown, maxChars: number, seen = new WeakSet<object>()): unknown {
+  if (typeof value === "string") {
+    return truncateOutput(value, maxChars);
+  }
+  if (value == null || typeof value !== "object") {
+    return value;
+  }
+  if (seen.has(value)) {
+    return "[Circular]";
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => truncateTraceValue(item, maxChars, seen));
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      truncateTraceValue(entry, maxChars, seen),
+    ]),
+  );
+}
+
 function formatHistory(entries: RLMHistoryEntry[], maxOutputChars: number): string {
   if (entries.length === 0) {
     return "No REPL history yet.";
@@ -711,23 +781,23 @@ function normalizeStepError(value: SerializedError | string): SerializedError {
   return typeof value === "string" ? { message: value } : value;
 }
 
-function collectStepLines(result: RLMExecuteStepResult): string[] {
+function collectStepLines(result: RLMExecuteStepResult, maxOutputChars: number): string[] {
   const lines: string[] = [];
   for (const value of result.logs ?? []) {
-    lines.push(value);
+    lines.push(truncateOutput(value, maxOutputChars));
   }
   if (result.stdout != null && result.stdout.length > 0) {
-    lines.push(result.stdout);
+    lines.push(truncateOutput(result.stdout, maxOutputChars));
   }
   if (result.stderr != null && result.stderr.length > 0) {
-    lines.push(result.stderr);
+    lines.push(truncateOutput(result.stderr, maxOutputChars));
   }
   if (result.submitted !== undefined) {
-    lines.push(`SUBMIT: ${stableStringify(result.submitted)}`);
+    lines.push(truncateOutput(`SUBMIT: ${stableStringify(result.submitted)}`, maxOutputChars));
   }
   if (result.error != null) {
     const normalized = normalizeStepError(result.error);
-    lines.push(`ERROR: ${normalized.message}`);
+    lines.push(truncateOutput(`ERROR: ${normalized.message}`, maxOutputChars));
   }
   return lines;
 }
@@ -755,7 +825,7 @@ function formatStepOutput(
     parts.push(`Stderr:\n${truncateOutput(step.stderr, maxOutputChars)}`);
   }
   if (step.submitted !== undefined) {
-    parts.push(`SUBMIT: ${stableStringify(step.submitted)}`);
+    parts.push(`SUBMIT: ${truncateOutput(stableStringify(step.submitted), maxOutputChars)}`);
   }
   if (step.submitValidationError != null) {
     parts.push(`SUBMIT validation failed: ${step.submitValidationError.message}`);
